@@ -6,19 +6,23 @@ import time
 from config import CONFIG
 from collections import deque   # 这个队列用来判断长将或长捉
 import random
+import random
+def generate_dark_chess_board():
+    red_pieces = ['红帅'] + ['红士'] * 2 + ['红象'] * 2 + ['红马'] * 2 + ['红车'] * 2 + ['红炮'] * 2 + ['红兵'] * 5
+    black_pieces = ['黑帅'] + ['黑士'] * 2 + ['黑象'] * 2 + ['黑马'] * 2 + ['黑车'] * 2 + ['黑炮'] * 2 + ['黑兵'] * 5
+    all_pieces = red_pieces + black_pieces
+    random.shuffle(all_pieces)
 
+    board = []
+    for i in range(4):
+        row = []
+        for j in range(8):
+            row.append(all_pieces[i * 8 + j])
+        board.append(row)
 
+    return board
 # 列表来表示棋盘，红方在上，黑方在下。使用时需要使用深拷贝
-state_list_init = [['红车', '红马', '红象', '红士', '红帅', '红士', '红象', '红马', '红车'],
-                   ['一一', '一一', '一一', '一一', '一一', '一一', '一一', '一一', '一一'],
-                   ['一一', '红炮', '一一', '一一', '一一', '一一', '一一', '红炮', '一一'],
-                   ['红兵', '一一', '红兵', '一一', '红兵', '一一', '红兵', '一一', '红兵'],
-                   ['一一', '一一', '一一', '一一', '一一', '一一', '一一', '一一', '一一'],
-                   ['一一', '一一', '一一', '一一', '一一', '一一', '一一', '一一', '一一'],
-                   ['黑兵', '一一', '黑兵', '一一', '黑兵', '一一', '黑兵', '一一', '黑兵'],
-                   ['一一', '黑炮', '一一', '一一', '一一', '一一', '一一', '黑炮', '一一'],
-                   ['一一', '一一', '一一', '一一', '一一', '一一', '一一', '一一', '一一'],
-                   ['黑车', '黑马', '黑象', '黑士', '黑帅', '黑士', '黑象', '黑马', '黑车']]
+state_list_init = generate_dark_chess_board()
 
 
 # deque来存储棋盘状态，长度为4
@@ -56,8 +60,8 @@ def change_state(state_list, move):
 def print_board(_state_array):
     # _state_array: [10, 9, 7], HWC
     board_line = []
-    for i in range(10):
-        for j in range(9):
+    for i in range(4):
+        for j in range(8):
             board_line.append(array2string(_state_array[i][j]))
         print(board_line)
         board_line.clear()
@@ -65,9 +69,9 @@ def print_board(_state_array):
 
 # 列表棋盘状态到数组棋盘状态
 def state_list2state_array(state_list):
-    _state_array = np.zeros([10, 9, 7])
-    for i in range(10):
-        for j in range(9):
+    _state_array = np.zeros([4, 8, 7])
+    for i in range(4):
+        for j in range(8):
             _state_array[i][j] = string2array[state_list[i][j]]
     return _state_array
 
@@ -76,6 +80,30 @@ def state_list2state_array(state_list):
 # 第一个字典：move_id到move_action
 # 第二个字典：move_action到move_id
 # 例如：move_id:0 --> move_action:'0010'
+def get_all_legal_moves_darkchess():
+    # 長度未知
+    _move_id2move_action = {}
+    _move_action2move_id = {}
+    idx = 0
+
+    rows = 4
+    cols = 8
+
+    for r in range(rows):
+        for c in range(cols):
+            from_pos = f"{r}{c}"
+            # 定義 4 個方向：上下左右
+            directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+            for dr, dc in directions:
+                nr, nc = r + dr, c + dc
+                if 0 <= nr < rows and 0 <= nc < cols:
+                    to_pos = f"{nr}{nc}"
+                    action = from_pos + to_pos  # 例如 "0010" 表示 (0,0) 到 (1,0)
+                    _move_id2move_action[idx] = action
+                    _move_action2move_id[action] = idx
+                    idx += 1
+
+    return _move_id2move_action, _move_action2move_id
 def get_all_legal_moves():
     _move_id2move_action = {}
     _move_action2move_id = {}
@@ -116,7 +144,7 @@ def get_all_legal_moves():
     return _move_id2move_action, _move_action2move_id
 
 
-move_id2move_action, move_action2move_id = get_all_legal_moves()
+move_id2move_action, move_action2move_id = get_all_legal_moves_darkchess()
 
 
 # 走子翻转的函数，用来扩充我们的数据
@@ -132,12 +160,48 @@ def flip_map(string):
 
 # 边界检查
 def check_bounds(toY, toX):
-    if toY in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] and toX in [0, 1, 2, 3, 4, 5, 6, 7, 8]:
+    if toY in [0, 1, 2, 3, 4] and toX in [0, 1, 2, 3, 4, 5, 6, 7]:
         return True
     return False
 
 
 # 不能走到自己的棋子位置
+def check_obstruct_dark_chess(piece, current_player_color, current_piece):
+    # 空格：可以走
+    if piece == '一一':
+        return True
+
+    # 同色：不能吃
+    if (current_player_color == '红' and '红' in piece) or \
+       (current_player_color == '黑' and '黑' in piece):
+        return False
+
+    # 提取棋子強度（越大數字越強）
+    def get_strength(p):
+        if '兵' in p:
+            return 1
+        elif '炮' in p:
+            return 0
+        elif '馬' in p:
+            return 2
+        elif '象' in p:
+            return 4
+        elif '士' in p:
+            return 5
+        elif '車' in p:
+            return 3
+        elif '帅' in p:
+            return 6
+        else:
+            return 0  # 預設（或未知）
+
+    # 特判：兵可以吃兵與帥
+    if ('兵' in current_piece) and \
+       (('兵' in piece) or ('帅' in piece)):
+        return True
+
+    # 一般情況：大吃小
+    return get_strength(current_piece) >= get_strength(piece)
 def check_obstruct(piece, current_player_color):
     # 当走到的位置存在棋子的时候，进行一次判断
     if piece != '一一':
