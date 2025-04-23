@@ -23,7 +23,8 @@ class Human1:
 if CONFIG['use_frame'] == 'paddle':
     policy_value_net = PolicyValueNet(model_file='current_policy.model')
 elif CONFIG['use_frame'] == 'pytorch':
-    policy_value_net = PolicyValueNet(model_file='current_policy.pkl')
+    # policy_value_net = PolicyValueNet(model_file='current_policy.pkl')
+    policy_value_net = PolicyValueNet(model_file=None)
 else:
     print('暂不支持您选择的框架')
 
