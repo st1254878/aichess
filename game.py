@@ -81,7 +81,6 @@ def state_list2state_array(state_list):
 # 第二个字典：move_action到move_id
 # 例如：move_id:0 --> move_action:'0010'
 def get_all_legal_moves_darkchess():
-    # 長度未知
     _move_id2move_action = {}
     _move_action2move_id = {}
     idx = 0
@@ -92,16 +91,20 @@ def get_all_legal_moves_darkchess():
     for r in range(rows):
         for c in range(cols):
             from_pos = f"{r}{c}"
-            # 定義 4 個方向：上下左右
+
             directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
             for dr, dc in directions:
-                nr, nc = r + dr, c + dc
-                if 0 <= nr < rows and 0 <= nc < cols:
+                nr, nc = r, c
+                while 0 <= nr < rows and 0 <= nc < cols:
                     to_pos = f"{nr}{nc}"
-                    action = from_pos + to_pos  # 例如 "0010" 表示 (0,0) 到 (1,0)
-                    _move_id2move_action[idx] = action
-                    _move_action2move_id[action] = idx
-                    idx += 1
+                    action = from_pos + to_pos
+                    if action not in _move_action2move_id:
+                        _move_id2move_action[idx] = action
+                        _move_action2move_id[action] = idx
+                        idx += 1
+                    nr += dr
+                    nc += dc
+
 
     return _move_id2move_action, _move_action2move_id
 def get_all_legal_moves():
@@ -283,7 +286,6 @@ def get_legal_moves(state_deque, current_player_color):
                     else:
                         if state_list[toY][toX] != '一一':
                             if current_player_color not in state_list[toY][toX]:
-                                print('炮 in ',i,' ',j,' finds traget! ',toY,' ',toX, sep='')
                                 if change_state(state_list, m) != old_state_list:
                                     moves.append(m)
                             break
@@ -296,7 +298,6 @@ def get_legal_moves(state_deque, current_player_color):
                     else:
                         if state_list[toY][toX] != '一一':
                             if current_player_color not in state_list[toY][toX]:
-                                print('炮 in ', i, ' ', j, ' finds traget! ', toY, ' ', toX, sep='')
                                 if change_state(state_list, m) != old_state_list:
                                     moves.append(m)
                             break
@@ -310,7 +311,6 @@ def get_legal_moves(state_deque, current_player_color):
                     else:
                         if state_list[toY][toX] != '一一':
                             if current_player_color not in state_list[toY][toX]:
-                                print('炮 in ', i, ' ', j, ' finds traget! ', toY, ' ', toX, sep='')
                                 if change_state(state_list, m) != old_state_list:
                                     moves.append(m)
                             break
@@ -323,7 +323,6 @@ def get_legal_moves(state_deque, current_player_color):
                     else:
                         if state_list[toY][toX] != '一一':
                             if current_player_color not in state_list[toY][toX]:
-                                print('炮 in ', i, ' ', j, ' finds traget! ', toY, ' ', toX, sep='')
                                 if change_state(state_list, m) != old_state_list:
                                     moves.append(m)
                             break
@@ -378,7 +377,7 @@ class Board(object):
 
     # 从当前玩家的视角返回棋盘状态，current_state_array: [9, 10, 9]  CHW
     def current_state(self):
-        _current_state = np.zeros([9, 10, 9])
+        _current_state = np.zeros([9, 4, 8])
         # 使用9个平面来表示棋盘状态
         # 0-6个平面表示棋子位置，1代表红方棋子，-1代表黑方棋子, 队列最后一个盘面
         # 第7个平面表示对手player最近一步的落子位置，走子之前的位置为-1，走子之后的位置为1，其余全部是0
@@ -403,6 +402,7 @@ class Board(object):
         self.game_start = True  # 游戏开始
         self.action_count += 1  # 移动次数加1
         move_action = move_id2move_action[move]
+
         start_y, start_x = int(move_action[0]), int(move_action[1])
         end_y, end_x = int(move_action[2]), int(move_action[3])
         state_list = copy.deepcopy(self.state_deque[-1])
@@ -420,14 +420,12 @@ class Board(object):
                         continue
                     if '黑' in piece:
                         black_remain = True
-                    if '紅' in piece:
+                    if '红' in piece:
                         red_remain = True
             if not black_remain:
                 self.winner = self.color2id['红']
             elif not red_remain:
                 self.winner = self.color2id['黑']
-            else:
-                self.winner = None
         else:
             self.kill_action += 1
         # 更改棋盘状态

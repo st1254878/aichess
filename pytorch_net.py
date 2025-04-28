@@ -49,12 +49,12 @@ class Net(nn.Module):
         self.policy_conv = nn.Conv2d(in_channels=num_channels, out_channels=16, kernel_size=(1, 1), stride=(1, 1))
         self.policy_bn = nn.BatchNorm2d(16)
         self.policy_act = nn.ReLU()
-        self.policy_fc = nn.Linear(16 * 9 * 10, 2086)
+        self.policy_fc = nn.Linear(16 * 4 * 8, 400)
         # 价值头
         self.value_conv = nn.Conv2d(in_channels=num_channels, out_channels=8, kernel_size=(1, 1), stride=(1, 1))
         self.value_bn = nn.BatchNorm2d(8)
         self.value_act1 = nn.ReLU()
-        self.value_fc1 = nn.Linear(8 * 9 * 10, 256)
+        self.value_fc1 = nn.Linear(8 * 4 * 8, 256)
         self.value_act2 = nn.ReLU()
         self.value_fc2 = nn.Linear(256, 1)
 
@@ -70,18 +70,18 @@ class Net(nn.Module):
         policy = self.policy_conv(x)
         policy = self.policy_bn(policy)
         policy = self.policy_act(policy)
-        policy = torch.reshape(policy, [-1, 16 * 10 * 9])
+        policy = torch.reshape(policy, [-1, 16 * 4 * 8])
         policy = self.policy_fc(policy)
-        policy = F.log_softmax(policy)
+        policy = F.log_softmax(policy,dim=1)
         # 价值头
         value = self.value_conv(x)
         value = self.value_bn(value)
         value = self.value_act1(value)
-        value = torch.reshape(value, [-1, 8 * 10 * 9])
+        value = torch.reshape(value, [-1, 8 * 4 * 8])
         value = self.value_fc1(value)
         value = self.value_act1(value)
         value = self.value_fc2(value)
-        value = F.tanh(value)
+        value = torch.tanh(value)
 
         return policy, value
 
@@ -112,7 +112,7 @@ class PolicyValueNet:
         self.policy_value_net.eval()
         # 获取合法动作列表
         legal_positions = board.availables
-        current_state = np.ascontiguousarray(board.current_state().reshape(-1, 9, 10, 9)).astype('float16')
+        current_state = np.ascontiguousarray(board.current_state().reshape(-1, 9, 4, 8)).astype('float16')
         current_state = torch.as_tensor(current_state).to(self.device)
         # 使用神经网络进行预测
         with autocast(): #半精度fp16
@@ -163,7 +163,7 @@ class PolicyValueNet:
 
 if __name__ == '__main__':
     net = Net().to('cuda')
-    test_data = torch.ones([8, 9, 10, 9]).to('cuda')
+    test_data = torch.ones([8, 9, 4, 8]).to('cuda')
     x_act, x_val = net(test_data)
     print(x_act.shape)  # 8, 2086
     print(x_val.shape)  # 8, 1

@@ -14,6 +14,9 @@ else:
 class Human1:
     def get_action(self, board):
         move = move_action2move_id[input('请输入')]
+        while move not in board.availables:
+            print("invalid move, please try again!")
+            move = move_action2move_id[input('请输入')]
         # move = random.choice(board.availables)
         return move
 
@@ -34,7 +37,7 @@ mcts_player = MCTSPlayer(policy_value_net.policy_value_fn,
                                 is_selfplay=0)
 
 human = Human1()
-
+human2 = Human1()
 
 game = Game(board=Board())
 game.start_play(mcts_player, human, start_player=1, is_shown=1)
