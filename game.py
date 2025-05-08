@@ -12,12 +12,11 @@ def generate_dark_chess_board():
     black_pieces = ['黑帅'] + ['黑士'] * 2 + ['黑象'] * 2 + ['黑马'] * 2 + ['黑车'] * 2 + ['黑炮'] * 2 + ['黑兵'] * 5
     all_pieces = red_pieces + black_pieces
     random.shuffle(all_pieces)
-
     board = []
     for i in range(4):
         row = []
         for j in range(8):
-            row.append(all_pieces[i * 8 + j])
+            row.append('暗棋')
         board.append(row)
 
     return board
@@ -39,7 +38,7 @@ string2array = dict(红车=np.array([1, 0, 0, 0, 0, 0, 0]), 红马=np.array([0, 
                     黑马=np.array([0, -1, 0, 0, 0, 0, 0]), 黑象=np.array([0, 0, -1, 0, 0, 0, 0]),
                     黑士=np.array([0, 0, 0, -1, 0, 0, 0]), 黑帅=np.array([0, 0, 0, 0, -1, 0, 0]),
                     黑炮=np.array([0, 0, 0, 0, 0, -1, 0]), 黑兵=np.array([0, 0, 0, 0, 0, 0, -1]),
-                    一一=np.array([0, 0, 0, 0, 0, 0, 0]))
+                    一一=np.array([0, 0, 0, 0, 0, 0, 0]), 暗棋=np.array([1, 1, 1, 1, 1, 1, 1]))
 
 
 def array2string(array):
@@ -244,7 +243,8 @@ def get_legal_moves(state_deque, current_player_color):
         '红车': 3, '黑车': 3,
         '红象': 4, '黑象': 4,
         '红士': 5, '黑士': 5,
-        '红帅': 6, '黑帅': 6
+        '红帅': 6, '黑帅': 6,
+        '暗棋': 10
     }
     # 棋子轉等級
     def get_strength(piece):
@@ -255,7 +255,11 @@ def get_legal_moves(state_deque, current_player_color):
     for i in range(rows):
         for j in range(cols):
             piece = state_list[i][j]
-            if piece != '一一' and current_player_color in piece:
+            if piece == '暗棋':
+                m = str(i) + str(j) + str(i) + str(j)
+                if change_state(state_list, m) != old_state_list:
+                    moves.append(m)
+            elif piece != '一一' and current_player_color in piece:
                 for dx, dy in directions:
                     ni, nj = i + dx, j + dy
                     if 0 <= ni < rows and 0 <= nj < cols:
@@ -285,7 +289,7 @@ def get_legal_moves(state_deque, current_player_color):
                             hits = True
                     else:
                         if state_list[toY][toX] != '一一':
-                            if current_player_color not in state_list[toY][toX]:
+                            if current_player_color not in state_list[toY][toX] and state_list[toY][toX] != '暗棋':
                                 if change_state(state_list, m) != old_state_list:
                                     moves.append(m)
                             break
@@ -297,7 +301,7 @@ def get_legal_moves(state_deque, current_player_color):
                             hits = True
                     else:
                         if state_list[toY][toX] != '一一':
-                            if current_player_color not in state_list[toY][toX]:
+                            if current_player_color not in state_list[toY][toX] and state_list[toY][toX] != '暗棋':
                                 if change_state(state_list, m) != old_state_list:
                                     moves.append(m)
                             break
@@ -310,7 +314,7 @@ def get_legal_moves(state_deque, current_player_color):
                             hits = True
                     else:
                         if state_list[toY][toX] != '一一':
-                            if current_player_color not in state_list[toY][toX]:
+                            if current_player_color not in state_list[toY][toX] and state_list[toY][toX] != '暗棋':
                                 if change_state(state_list, m) != old_state_list:
                                     moves.append(m)
                             break
@@ -322,7 +326,7 @@ def get_legal_moves(state_deque, current_player_color):
                             hits = True
                     else:
                         if state_list[toY][toX] != '一一':
-                            if current_player_color not in state_list[toY][toX]:
+                            if current_player_color not in state_list[toY][toX] and state_list[toY][toX] != '暗棋':
                                 if change_state(state_list, m) != old_state_list:
                                     moves.append(m)
                             break
@@ -337,6 +341,8 @@ def get_legal_moves(state_deque, current_player_color):
 class Board(object):
 
     def __init__(self):
+        self.remain_pieces = []
+        self.first_move = True
         self.state_list = copy.deepcopy(state_list_init)
         self.game_start = False
         self.winner = None
@@ -346,6 +352,13 @@ class Board(object):
     def init_board(self, start_player=1):   # 传入先手玩家的id
         # 增加一个颜色到id的映射字典，id到颜色的映射字典
         # 永远是红方先移动
+        red_pieces = ['红帅'] + ['红士'] * 2 + ['红象'] * 2 + ['红马'] * 2 + ['红车'] * 2 + ['红炮'] * 2 + ['红兵'] * 5
+        black_pieces = ['黑帅'] + ['黑士'] * 2 + ['黑象'] * 2 + ['黑马'] * 2 + ['黑车'] * 2 + ['黑炮'] * 2 + ['黑兵'] * 5
+        covered_pieces = red_pieces + black_pieces
+        start_player = random.choice([1,2])
+        random.shuffle(covered_pieces)
+        self.remain_pieces = covered_pieces
+        self.first_move = True
         self.start_player = start_player
 
         if start_player == 1:
@@ -353,12 +366,15 @@ class Board(object):
             self.color2id = {'红': 1, '黑': 2}
             self.backhand_player = 2
         elif start_player == 2:
-            self.id2color = {2: '红', 1: '黑'}
-            self.color2id = {'红': 2, '黑': 1}
+            self.id2color = {2: '黑', 1: '红'}
+            self.color2id = {'黑': 2, '红': 1}
             self.backhand_player = 1
         # 当前手玩家，也就是先手玩家
         self.current_player_color = self.id2color[start_player]     # 红
-        self.current_player_id = self.color2id['红']
+        if start_player == 1 :
+            self.current_player_id = self.color2id['红']
+        else:
+            self.current_player_id = self.color2id['黑']
         # 初始化棋盘状态
         self.state_list = copy.deepcopy(state_list_init)
         self.state_deque = copy.deepcopy(state_deque_init)
@@ -402,35 +418,48 @@ class Board(object):
         self.game_start = True  # 游戏开始
         self.action_count += 1  # 移动次数加1
         move_action = move_id2move_action[move]
-
+        flip = False
         start_y, start_x = int(move_action[0]), int(move_action[1])
         end_y, end_x = int(move_action[2]), int(move_action[3])
+        if start_x == end_x and start_y == end_y:
+            flip = True
         state_list = copy.deepcopy(self.state_deque[-1])
         # 判断是否吃子
-        if state_list[end_y][end_x] != '一一':
+        if flip:
+            if self.first_move:
+                self.first_move = False
+                while self.current_player_color not in self.remain_pieces[0]:
+                    self.remain_pieces = self.remain_pieces[1:] + self.remain_pieces[:1]
+            state_list[end_y][end_x] = self.remain_pieces[0]
+            self.remain_pieces.pop(0)
+        elif state_list[end_y][end_x] != '一一':
             # 如果吃掉对方的帅，则返回当前的current_player胜利
             self.kill_action = 0
             black_remain = False
             red_remain = False
+            pieces_remain = False
             rows, cols = 4, 8
             for i in range(rows):
                 for j in range(cols):
                     piece = state_list[i][j]
                     if i == end_y and j == end_x:
                         continue
+                    if piece == '暗棋':
+                        pieces_remain = True
                     if '黑' in piece:
                         black_remain = True
                     if '红' in piece:
                         red_remain = True
-            if not black_remain:
+            if not black_remain and not pieces_remain:
                 self.winner = self.color2id['红']
-            elif not red_remain:
+            elif not red_remain and not pieces_remain:
                 self.winner = self.color2id['黑']
         else:
             self.kill_action += 1
         # 更改棋盘状态
-        state_list[end_y][end_x] = state_list[start_y][start_x]
-        state_list[start_y][start_x] = '一一'
+        if not flip:
+            state_list[end_y][end_x] = state_list[start_y][start_x]
+            state_list[start_y][start_x] = '一一'
         self.current_player_color = '黑' if self.current_player_color == '红' else '红'  # 改变当前玩家
         self.current_player_id = 1 if self.current_player_id == 2 else 2
         # 记录最后一次移动的位置
@@ -492,7 +521,10 @@ class Game(object):
             current_player = self.board.get_current_player_id()  # 红子对应的玩家id
             player_in_turn = players[current_player]  # 决定当前玩家的代理
             move = player_in_turn.get_action(self.board)  # 当前玩家代理拿到动作
+            print(move_id2move_action[move])
+            print(self.board.remain_pieces)
             self.board.do_move(move)  # 棋盘做出改变
+
             if is_shown:
                 self.graphic(self.board, player1.player, player2.player)
             end, winner = self.board.game_end()
