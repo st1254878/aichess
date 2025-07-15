@@ -12,7 +12,7 @@ num2array = dict({1 : np.array([1, 0, 0, 0, 0, 0, 0]), 2: np.array([0, 1, 0, 0, 
                   9: np.array([0, -1, 0, 0, 0, 0, 0]), 10: np.array([0, 0, -1, 0, 0, 0, 0]),
                   11: np.array([0, 0, 0, -1, 0, 0, 0]), 12: np.array([0, 0, 0, 0, -1, 0, 0]),
                   13: np.array([0, 0, 0, 0, 0, -1, 0]), 14: np.array([0, 0, 0, 0, 0, 0, -1]),
-                  15: np.array([0, 0, 0, 0, 0, 0, 0])})
+                  15: np.array([0, 0, 0, 0, 0, 0, 0]), 16: np.array([1, 1, 1, 1, 1, 1, 1])})
 def array2num(array):
     return list(filter(lambda string: (num2array[string] == array).all(), num2array))[0]
 
@@ -37,7 +37,7 @@ def recovery_state_mcts_prob(tuple):
     state, mcts_prob, winner = tuple
     state = recovery_array(state)
     mcts_prob = recovery_array(mcts_prob)
-    state = state.reshape((9,10,9))
+    state = state.reshape((9,4,8))
     mcts_prob = mcts_prob.reshape(2086)
     return state,mcts_prob,winner
 

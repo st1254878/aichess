@@ -4,6 +4,7 @@ CONFIG = {
     'play_out': 1200,        # 每次移动的模拟次数
     'c_puct': 5,             # u的权重
     'buffer_size': 100000,   # 经验池大小
+    'state_size' : 0,
     'paddle_model_path': 'current_policy.model',      # paddle模型路径
     'pytorch_model_path': 'current_policy.pkl',   # pytorch模型路径
     'train_data_buffer_path': 'train_data_buffer.pkl',   # 数据容器的路径

@@ -61,25 +61,32 @@ class CollectPipeline:
     def get_equi_data(self, play_data):
         """左右对称变换，扩充数据集一倍，加速一倍训练速度"""
         extend_data = []
-        # 棋盘状态shape is [9, 10, 9], 走子概率，赢家
+        # 棋盘状态shape is [9, 4, 8], 走子概率，赢家
         for state, mcts_prob, winner in play_data:
-            # 原始数据
+            # 原始數據
             extend_data.append(zip_array.zip_state_mcts_prob((state, mcts_prob, winner)))
+
             # 水平翻转后的数据
-            state_flip = state.transpose([1, 2, 0])
+            state_flip = state.transpose([1, 2, 0])  # [4, 8, 7]
             state = state.transpose([1, 2, 0])
-            for i in range(10):
-                for j in range(9):
-                    state_flip[i][j] = state[i][8 - j]
-            state_flip = state_flip.transpose([2, 0, 1])
+            for i in range(4):
+                for j in range(8):
+                    state_flip[i][j] = state[i][7 - j]
+            state_flip = state_flip.transpose([2, 0, 1])  # 回到 [7, 4, 8]
+
+            # 翻轉 MCTS 概率向量
             mcts_prob_flip = copy.deepcopy(mcts_prob)
             for i in range(len(mcts_prob_flip)):
-                mcts_prob_flip[i] = mcts_prob[move_action2move_id[flip_map(move_id2move_action[i])]]
+                flipped_move = flip_map(move_id2move_action[i])
+                flipped_id = move_action2move_id[flipped_move]
+                mcts_prob_flip[i] = mcts_prob[flipped_id]
+
             extend_data.append(zip_array.zip_state_mcts_prob((state_flip, mcts_prob_flip, winner)))
         return extend_data
 
     def collect_selfplay_data(self, n_games=1):
         # 收集自我对弈的数据
+        print("self runnign start!")
         for i in range(n_games):
             self.load_model()  # 从本体处加载最新模型
             winner, play_data = self.game.start_self_play(self.mcts_player, temp=self.temp, is_shown=False)
