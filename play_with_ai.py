@@ -10,6 +10,15 @@ elif CONFIG['use_frame'] == 'pytorch':
 else:
     print('暂不支持您选择的框架')
 
+class greedy_player:
+    def get_action(self, board):
+        greedy_move_list = board.greedys()
+        greedy_move = random.choice(greedy_move_list)
+        return greedy_move
+
+    def set_player_ind(self, p):
+        self.player = p
+
 # 测试Board中的start_play
 class Human1:
     def get_action(self, board):
@@ -26,8 +35,8 @@ class Human1:
 if CONFIG['use_frame'] == 'paddle':
     policy_value_net = PolicyValueNet(model_file='current_policy.model')
 elif CONFIG['use_frame'] == 'pytorch':
-    # policy_value_net = PolicyValueNet(model_file='current_policy.pkl')
-    policy_value_net = PolicyValueNet(model_file=None)
+    policy_value_net = PolicyValueNet(model_file='current_policy.pkl')
+    # policy_value_net = PolicyValueNet(model_file=None)
 else:
     print('暂不支持您选择的框架')
 
@@ -38,8 +47,9 @@ mcts_player = MCTSPlayer(policy_value_net.policy_value_fn,
 
 human = Human1()
 human2 = Human1()
+greedy_method = greedy_player()
 
 game = Game(board=Board())
-game.start_play(mcts_player, human, start_player=1, is_shown=1)
+game.start_play(greedy_method, human, start_player=1, is_shown=1)
 
 

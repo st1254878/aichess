@@ -151,14 +151,16 @@ move_id2move_action, move_action2move_id = get_all_legal_moves_darkchess()
 
 # 走子翻转的函数，用来扩充我们的数据
 def flip_map(string):
+    # string 是 4 位數字字串，例如 "0213"
+    # 表示從 (2,1) -> (3,3)
     new_str = ''
     for index in range(4):
-        if index == 0 or index == 2:
-            new_str += (str(string[index]))
-        else:
-            new_str += (str(8 - int(string[index])))
+        digit = int(string[index])
+        if index == 1 or index == 3:
+            # 翻轉列（左右鏡像）
+            digit = 7 - digit
+        new_str += str(digit)
     return new_str
-
 
 # 边界检查
 def check_bounds(toY, toX):
@@ -238,7 +240,7 @@ def get_legal_moves(state_deque, current_player_color):
     # 棋子等級 越大越強
     piece_strength = {
         '红炮': 0, '黑炮': 0,
-        '紅兵': 1, '黑兵': 1,
+        '红兵': 1, '黑兵': 1,
         '红马': 2, '黑马': 2,
         '红车': 3, '黑车': 3,
         '红象': 4, '黑象': 4,
@@ -270,7 +272,7 @@ def get_legal_moves(state_deque, current_player_color):
                                 moves.append(m)
                         elif current_player_color not in target_piece  and '炮' not in piece:
                             if '帅' in piece and '兵' in target_piece:
-                                break
+                                continue
                             elif '兵' in piece and '帅' in target_piece:
                                 if change_state(state_list, m) != old_state_list:
                                     moves.append(m)
@@ -336,6 +338,34 @@ def get_legal_moves(state_deque, current_player_color):
         moves_id.append(move_action2move_id[move])
     return moves_id
 
+def get_greedy_move(state_deque, current_player_color):
+    state_list = state_deque[-1]
+    current_color = current_player_color
+    legal_moves = get_legal_moves(state_deque, current_color)
+
+    eat_moves = []
+    fallback_moves = []
+
+    for move_id in legal_moves:
+        move = move_id2move_action[move_id]
+        y, x, to_y, to_x = int(move[0]), int(move[1]), int(move[2]), int(move[3])
+        start_piece = state_list[y][x]
+        target_piece = state_list[to_y][to_x]
+
+        # 翻棋的情況（座標相同）
+        if y == to_y and x == to_x:
+            fallback_moves.append(move_id)
+        elif target_piece != '一一' and current_color not in target_piece and '暗棋' not in target_piece:
+            # 吃敵方棋
+            eat_moves.append(move_id)
+        else:
+            # 普通走棋
+            fallback_moves.append(move_id)
+
+    if eat_moves:
+        return eat_moves
+    else:
+        return fallback_moves
 
 # 棋盘逻辑控制
 class Board(object):
@@ -360,7 +390,6 @@ class Board(object):
         self.remain_pieces = covered_pieces
         self.first_move = True
         self.start_player = start_player
-
         if start_player == 1:
             self.id2color = {1: '红', 2: '黑'}
             self.color2id = {'红': 1, '黑': 2}
@@ -391,6 +420,9 @@ class Board(object):
     def availables(self):
         return get_legal_moves(self.state_deque, self.current_player_color)
 
+    def greedys(self):
+        return get_greedy_move(self.state_deque, self.current_player_color)
+
     # 从当前玩家的视角返回棋盘状态，current_state_array: [9, 10, 9]  CHW
     def current_state(self):
         _current_state = np.zeros([9, 4, 8])
@@ -398,7 +430,7 @@ class Board(object):
         # 0-6个平面表示棋子位置，1代表红方棋子，-1代表黑方棋子, 队列最后一个盘面
         # 第7个平面表示对手player最近一步的落子位置，走子之前的位置为-1，走子之后的位置为1，其余全部是0
         # 第8个平面表示的是当前player是不是先手player，如果是先手player则整个平面全部为1，否则全部为0
-        _current_state[:7] = state_list2state_array(self.state_deque[-1]).transpose([2, 0, 1])  # [7, 10, 9]
+        _current_state[:7] = state_list2state_array(self.state_deque[-1]).transpose([2, 0, 1])  # [7, 4, 8]
 
         if self.game_start:
             # 解构self.last_move
@@ -435,25 +467,6 @@ class Board(object):
         elif state_list[end_y][end_x] != '一一':
             # 如果吃掉对方的帅，则返回当前的current_player胜利
             self.kill_action = 0
-            black_remain = False
-            red_remain = False
-            pieces_remain = False
-            rows, cols = 4, 8
-            for i in range(rows):
-                for j in range(cols):
-                    piece = state_list[i][j]
-                    if i == end_y and j == end_x:
-                        continue
-                    if piece == '暗棋':
-                        pieces_remain = True
-                    if '黑' in piece:
-                        black_remain = True
-                    if '红' in piece:
-                        red_remain = True
-            if not black_remain and not pieces_remain:
-                self.winner = self.color2id['红']
-            elif not red_remain and not pieces_remain:
-                self.winner = self.color2id['黑']
         else:
             self.kill_action += 1
         # 更改棋盘状态
@@ -465,7 +478,12 @@ class Board(object):
         # 记录最后一次移动的位置
         self.last_move = move
         self.state_deque.append(state_list)
-
+        move_list = self.greedys()
+        if move_list == []:
+            if self.current_player_color == '红':
+                self.winner = self.color2id['黑']
+            else:
+                self.winner = self.color2id['红']
     # 是否产生赢家
     def has_a_winner(self):
         """一共有三种状态，红方胜，黑方胜，平局"""
@@ -500,8 +518,6 @@ class Game(object):
 
     # 可视化
     def graphic(self, board, player1_color, player2_color):
-        print('player1 take: ', player1_color)
-        print('player2 take: ', player2_color)
         print_board(state_list2state_array(board.state_deque[-1]))
 
     # 用于人机对战，人人对战等
@@ -521,8 +537,8 @@ class Game(object):
             current_player = self.board.get_current_player_id()  # 红子对应的玩家id
             player_in_turn = players[current_player]  # 决定当前玩家的代理
             move = player_in_turn.get_action(self.board)  # 当前玩家代理拿到动作
-            print(move_id2move_action[move])
-            print(self.board.remain_pieces)
+
+            # print(self.board.remain_pieces)
             self.board.do_move(move)  # 棋盘做出改变
 
             if is_shown:
@@ -530,13 +546,13 @@ class Game(object):
             end, winner = self.board.game_end()
             if end:
                 if winner != -1:
-                    print("Game end. Winner is", players[winner])
+                    print("Game end. Winner is", players[winner]," ",self.board.current_player_color,sep="")
                 else:
                     print("Game end. Tie")
                 return winner
 
     # 使用蒙特卡洛树搜索开始自我对弈，存储游戏状态（状态，蒙特卡洛落子概率，胜负手）三元组用于神经网络训练
-    def start_self_play(self, player, is_shown=False, temp=1e-3):
+    def start_self_play(self, player, is_shown=True, temp=1e-3):
         self.board.init_board()     # 初始化棋盘, start_player=1
         p1, p2 = 1, 2
         states, mcts_probs, current_players = [], [], []
@@ -579,55 +595,6 @@ class Game(object):
 
 
 if __name__ == '__main__':
-    # 测试array2string
-    # _array = np.array([0, 0, 0, 0, 0, 0, 0])
-    # print(array2num(_array))
-
-    """# 测试change_state
-    new_state = change_state(state_list_init, move='0010')
-    for row in range(10):
-        print(new_state[row])"""
-
-    """# 测试print_board
-    _state_list = copy.deepcopy(state_list_init)
-    print_board(state_list2state_array(_state_list))"""
-
-    """# 测试get_legal_moves
-    moves = get_legal_moves(state_deque_init, current_player_color='黑')
-    move_actions = []
-    for item in moves:
-        move_actions.append(move_id2move_action[item])
-    print(move_actions)"""
-
-    # 测试Board中的start_play
-    # class Human1:
-    #     def get_action(self, board):
-    #         # print('当前是player1在操作')
-    #         # print(board.current_player_color)
-    #         # move = move_action2move_id[input('请输入')]
-    #         move = random.choice(board.availables)
-    #         return move
-    #
-    #     def set_player_ind(self, p):
-    #         self.player = p
-    #
-    #
-    # class Human2:
-    #     def get_action(self, board):
-    #         # print('当前是player2在操作')
-    #         # print(board.current_player_color)
-    #         # move = move_action2move_id[input('请输入')]
-    #         move = random.choice(board.availables)
-    #         return move
-    #
-    #     def set_player_ind(self, p):
-    #         self.player = p
-    #
-    # human1 = Human1()
-    # human2 = Human2()
-    # game = Game(board=Board())
-    # for i in range(20):
-    #     game.start_play(human1, human2, start_player=2, is_shown=0)
     board = Board()
     board.init_board()
 

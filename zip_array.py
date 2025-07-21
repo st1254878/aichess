@@ -18,16 +18,16 @@ def array2num(array):
 
 # 压缩存储
 def state_list2state_num_array(state_list):
-    _state_array = np.zeros([10, 9, 7])
-    for i in range(10):
-        for j in range(9):
+    _state_array = np.zeros([4, 8, 7])
+    for i in range(4):
+        for j in range(8):
             _state_array[i][j] = num2array[state_list[i][j]]
     return _state_array
 
 #(state, mcts_prob, winner) ((9,10,9),2086,1) => ((9,90),(2,1043),1)
 def zip_state_mcts_prob(tuple):
     state, mcts_prob, winner = tuple
-    state = state.reshape((9,-1))
+    state = state.reshape((8,-1))
     mcts_prob = mcts_prob.reshape((2,-1))
     state = zip_array(state)
     mcts_prob = zip_array(mcts_prob)
@@ -35,15 +35,17 @@ def zip_state_mcts_prob(tuple):
 
 def recovery_state_mcts_prob(tuple):
     state, mcts_prob, winner = tuple
+    # print(state.shape,mcts_prob.shape)
     state = recovery_array(state)
     mcts_prob = recovery_array(mcts_prob)
-    state = state.reshape((9,4,8))
+    state = state.reshape((9, 4, 8))
     mcts_prob = mcts_prob.reshape(2086)
     return state,mcts_prob,winner
 
+
 def zip_array(array, data=0.):  # 压缩成稀疏数组
     zip_res = []
-    zip_res.append([len(array), len(array[0])])
+    zip_res = [[array.shape[0], array.shape[1], 0.0]]
     for i in range(len(array)):
         for j in range(len(array[0])):
             if array[i][j] != data:
@@ -53,9 +55,11 @@ def zip_array(array, data=0.):  # 压缩成稀疏数组
 
 def recovery_array(array, data=0.):  # 恢复数组
     recovery_res = []
-    for i in range(array[0][0]):
-        recovery_res.append([data for i in range(array[0][1])])
+    rows = int(array[0][0])
+    cols = int(array[0][1])
+    for i in range(rows):
+        recovery_res.append([data for i in range(cols)])
     for i in range(1, len(array)):
         # print(len(recovery_res[0]))
-        recovery_res[array[i][0]][array[i][1]] = array[i][2]
+        recovery_res[int(array[i][0])][int(array[i][1])] = array[i][2]
     return np.array(recovery_res)

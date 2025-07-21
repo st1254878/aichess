@@ -49,7 +49,7 @@ class Net(nn.Module):
         self.policy_conv = nn.Conv2d(in_channels=num_channels, out_channels=16, kernel_size=(1, 1), stride=(1, 1))
         self.policy_bn = nn.BatchNorm2d(16)
         self.policy_act = nn.ReLU()
-        self.policy_fc = nn.Linear(16 * 4 * 8, 512)
+        self.policy_fc = nn.Linear(16 * 4 * 8, 2086)
         # 价值头
         self.value_conv = nn.Conv2d(in_channels=num_channels, out_channels=8, kernel_size=(1, 1), stride=(1, 1))
         self.value_bn = nn.BatchNorm2d(8)

@@ -1,6 +1,5 @@
 """使用收集到数据进行训练"""
-
-
+import os
 import random
 from collections import defaultdict, deque
 
@@ -31,6 +30,8 @@ class TrainPipeline:
 
     def __init__(self, init_model=None):
         # 训练参数
+        self.best_policy_net = PolicyValueNet(model_file='best_policy.pth') if os.path.exists(
+            'best_policy.pth') else None
         self.board = Board()
         self.game = Game(self.board)
         self.n_playout = CONFIG['play_out']
@@ -62,34 +63,54 @@ class TrainPipeline:
             self.policy_value_net = PolicyValueNet()
 
 
-    def policy_evaluate(self, n_games=10):
+    def policy_evaluate(self, n_games=50):
         """
         Evaluate the trained policy by playing against the pure MCTS player
         Note: this is only for monitoring the progress of training
         """
+        if self.best_policy_net is None:
+            # 第一次訓練，還沒有 best_policy
+            print("尚未有 best_policy，跳過對戰評估")
+            return 1.0
+
         current_mcts_player = MCTSPlayer(self.policy_value_net.policy_value_fn,
                                          c_puct=self.c_puct,
-                                         n_playout=self.n_playout)
-        pure_mcts_player = MCTS_Pure(c_puct=5,
-                                     n_playout=self.pure_mcts_playout_num)
+                                         n_playout=200)
+
+        best_mcts_player = MCTSPlayer(self.best_policy_net.policy_value_fn,
+                                      c_puct=self.c_puct,
+                                      n_playout=200)
+
         win_cnt = defaultdict(int)
         for i in range(n_games):
-            winner = self.game.start_play(current_mcts_player,
-                                          pure_mcts_player,
-                                          start_player=i % 2 + 1,
-                                          is_shown=1)
-            win_cnt[winner] += 1
-        win_ratio = 1.0*(win_cnt[1] + 0.5*win_cnt[-1]) / n_games
-        print("num_playouts:{}, win: {}, lose: {}, tie:{}".format(
-                self.pure_mcts_playout_num,
-                win_cnt[1], win_cnt[2], win_cnt[-1]))
-        return win_ratio
+            # 輪流先手
+            if i % 2 == 0:
+                winner = self.game.start_play(current_mcts_player, best_mcts_player,
+                                              start_player=1, is_shown=0)
+                if winner == 1:
+                    win_cnt["current"] += 1
+                elif winner == 2:
+                    win_cnt["best"] += 1
+                else:
+                    win_cnt["tie"] += 1
+            else:
+                winner = self.game.start_play(best_mcts_player, current_mcts_player,
+                                              start_player=1, is_shown=0)
+                if winner == 1:
+                    win_cnt["best"] += 1
+                elif winner == 2:
+                    win_cnt["current"] += 1
+                else:
+                    win_cnt["tie"] += 1
 
+        win_ratio = (win_cnt["current"] + 0.5 * win_cnt["tie"]) / n_games
+        print(f"[模型對戰] new vs best → win: {win_cnt['current']}, lose: {win_cnt['best']}, tie: {win_cnt['tie']}")
+        print(f"勝率（對best）: {win_ratio:.2f}")
+        return win_ratio
 
     def policy_updata(self):
         """更新策略价值网络"""
         mini_batch = random.sample(self.data_buffer, self.batch_size)
-        # print(mini_batch[0][1],mini_batch[1][1])
         mini_batch = [zip_array.recovery_state_mcts_prob(data) for data in mini_batch]
         state_batch = [data[0] for data in mini_batch]
         state_batch = np.array(state_batch).astype('float32')
@@ -147,9 +168,10 @@ class TrainPipeline:
         return loss, entropy
 
     def run(self):
-        """开始训练"""
+        """開始訓練"""
         try:
             for i in range(self.game_batch_num):
+                # 載入數據
                 if not CONFIG['use_redis']:
                     while True:
                         try:
@@ -158,60 +180,60 @@ class TrainPipeline:
                                 self.data_buffer = data_file['data_buffer']
                                 self.iters = data_file['iters']
                                 del data_file
-                            print('已载入数据')
+                            print('已載入本地資料')
                             break
                         except:
+                            print("等待本地數據...")
                             time.sleep(30)
                 else:
                     while True:
                         try:
                             l = len(self.data_buffer)
-                            data = my_redis.get_list_range(self.redis_cli,'train_data_buffer', l if l == 0 else l - 1,-1)
+                            data = my_redis.get_list_range(
+                                self.redis_cli, 'train_data_buffer', l if l == 0 else l - 1, -1
+                            )
                             self.data_buffer.extend(data)
                             self.iters = self.redis_cli.get('iters')
                             if self.redis_cli.llen('train_data_buffer') > self.buffer_size:
-                                self.redis_cli.lpop('train_data_buffer',self.buffer_size/10)
+                                self.redis_cli.lpop('train_data_buffer', self.buffer_size // 10)
+                            print("已載入 Redis 數據")
                             break
                         except:
+                            print("等待 Redis 數據...")
                             time.sleep(5)
 
-                print('step i {}: '.format(self.iters))
+                print(f"訓練批次 {i + 1}，累積樣本數：{len(self.data_buffer)}")
+
                 if len(self.data_buffer) > self.batch_size:
                     loss, entropy = self.policy_updata()
-                    # 保存模型
-                    if CONFIG['use_frame'] == 'paddle':
-                        self.policy_value_net.save_model(CONFIG['paddle_model_path'])
-                    elif CONFIG['use_frame'] == 'pytorch':
-                        self.policy_value_net.save_model(CONFIG['pytorch_model_path'])
-                    else:
-                        print('不支持所选框架')
 
-                time.sleep(CONFIG['train_update_interval'])  # 每10分钟更新一次模型
+                    # 每 train_update_interval 時間再做下一輪
+                    time.sleep(CONFIG['train_update_interval'])
 
-                if (i + 1) % self.check_freq == 0:
-                    # win_ratio = self.policy_evaluate()
-                    # print("current self-play batch: {},win_ratio: {}".format(i + 1, win_ratio))
-                    # self.policy_value_net.save_model('./current_policy.model')
-                    # if win_ratio > self.best_win_ratio:
-                    #     print("New best policy!!!!!!!!")
-                    #     self.best_win_ratio = win_ratio
-                    #     # update the best_policy
-                    #     self.policy_value_net.save_model('./best_policy.model')
-                    #     if (self.best_win_ratio == 1.0 and
-                    #             self.pure_mcts_playout_num < 5000):
-                    #         self.pure_mcts_playout_num += 1000
-                    #         self.best_win_ratio = 0.0
-                    print("current self-play batch: {}".format(i + 1))
-                    self.policy_value_net.save_model('models/current_policy_batch{}.model'.format(i + 1))
+                    if (i + 1) % self.check_freq == 0:
+                        win_ratio = self.policy_evaluate()
+                        print(f"第 {i + 1} 批自對弈訓練，勝率：{win_ratio:.3f}")
+
+                        # 條件：勝率高於 55%，且是歷史新高
+                        if win_ratio > 0.55 :
+                            print("🎯 新最佳策略發現！勝率 {:.2f}%".format(win_ratio * 100))
+                            self.best_win_ratio = win_ratio
+                            self.policy_value_net.save_model('./current_policy.pth')
+                            self.policy_value_net.save_model('./best_policy.pth')
+                        else:
+                            print("勝率不足 55% 或非最佳，跳過保存 best_policy")
+
+                        # 無論勝率如何，每批次保留 checkpoint
+                        self.policy_value_net.save_model(f'models/current_policy_batch{i + 1}.pth')
+
         except KeyboardInterrupt:
-            print('\n\rquit')
-
+            print('\n⛔️ 手動終止訓練')
 
 if CONFIG['use_frame'] == 'paddle':
     training_pipeline = TrainPipeline(init_model='current_policy.model')
     training_pipeline.run()
 elif CONFIG['use_frame'] == 'pytorch':
-    training_pipeline = TrainPipeline(init_model='current_policy.pkl')
+    training_pipeline = TrainPipeline(init_model='current_policy.pth')
     training_pipeline.run()
 else:
     print('暂不支持您选择的框架')

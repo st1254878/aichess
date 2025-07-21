@@ -4,7 +4,8 @@
 import numpy as np
 import copy
 from config import CONFIG
-
+from game import get_all_legal_moves_darkchess
+move_id2move_action, move_action2move_id = get_all_legal_moves_darkchess()
 
 def softmax(x):
     probs = np.exp(x - np.max(x))
@@ -176,6 +177,18 @@ class MCTSPlayer(object):
         move_probs = np.zeros(2086)
 
         acts, probs = self.mcts.get_move_probs(board, temp)
+        eat_ids = []
+        for a in acts:
+            y1, x1, y2, x2 = map(int, move_id2move_action[a])
+            target = board.state_deque[-1][y2][x2]
+            if target not in ('一一', '暗棋') and board.current_player_color not in target:
+                eat_ids.append(a)
+
+        if eat_ids:  # 對每個吃子放大 1.2 倍
+            eat_index = [i for i, a in enumerate(acts) if a in eat_ids]
+            probs = probs.copy()
+            probs[eat_index] *= 1.2
+            probs /= probs.sum()
         move_probs[list(acts)] = probs
         if self._is_selfplay:
             # 添加Dirichlet Noise进行探索（自我对弈需要）

@@ -5,6 +5,9 @@ import copy
 import os
 import pickle
 import time
+
+import numpy as np
+
 from game import Board, Game, move_action2move_id, move_id2move_action, flip_map
 from mcts import MCTSPlayer
 from config import CONFIG
@@ -31,6 +34,7 @@ class CollectPipeline:
         self.game = Game(self.board)
         # 对弈参数
         self.temp = 1  # 温度
+        self.take_multi = CONFIG['take_multiplier']
         self.n_playout = CONFIG['play_out']  # 每次移动的模拟次数
         self.c_puct = CONFIG['c_puct']  # u的权重
         self.buffer_size = CONFIG['buffer_size']  # 经验池大小
@@ -65,7 +69,7 @@ class CollectPipeline:
         for state, mcts_prob, winner in play_data:
             # 原始數據
             extend_data.append(zip_array.zip_state_mcts_prob((state, mcts_prob, winner)))
-
+            '''
             # 水平翻转后的数据
             state_flip = state.transpose([1, 2, 0])  # [4, 8, 7]
             state = state.transpose([1, 2, 0])
@@ -77,23 +81,23 @@ class CollectPipeline:
             # 翻轉 MCTS 概率向量
             mcts_prob_flip = copy.deepcopy(mcts_prob)
             for i in range(len(mcts_prob_flip)):
-                flipped_move = flip_map(move_id2move_action[i])
-                flipped_id = move_action2move_id[flipped_move]
-                mcts_prob_flip[i] = mcts_prob[flipped_id]
-
-            extend_data.append(zip_array.zip_state_mcts_prob((state_flip, mcts_prob_flip, winner)))
+                mcts_prob_flip[i] = mcts_prob[move_action2move_id[flip_map(move_id2move_action[i])]]
+            extend_data.append(zip_array.zip_state_mcts_prob((state_flip, mcts_prob_flip, winner)))'''
         return extend_data
 
     def collect_selfplay_data(self, n_games=1):
         # 收集自我对弈的数据
-        print("self runnign start!")
         for i in range(n_games):
             self.load_model()  # 从本体处加载最新模型
-            winner, play_data = self.game.start_self_play(self.mcts_player, temp=self.temp, is_shown=False)
+            winner, play_data = self.game.start_self_play(self.mcts_player, temp=self.temp, is_shown=True)
             play_data = list(play_data)[:]
             self.episode_len = len(play_data)
             # 增加数据
             play_data = self.get_equi_data(play_data)
+            #state, mcts_prob, winner = play_data
+            #print(state.shape,mcts_prob.shape)
+            for data in play_data:
+                state, mcts_prob, winner = data
             if CONFIG['use_redis']:
                 while True:
                     try:
@@ -142,14 +146,14 @@ class CollectPipeline:
             print('\n\rquit')
 
 
-collecting_pipeline = CollectPipeline(init_model='current_policy.model')
+collecting_pipeline = CollectPipeline(init_model='current_policy.pth')
 collecting_pipeline.run()
 
 if CONFIG['use_frame'] == 'paddle':
     collecting_pipeline = CollectPipeline(init_model='current_policy.model')
     collecting_pipeline.run()
 elif CONFIG['use_frame'] == 'pytorch':
-    collecting_pipeline = CollectPipeline(init_model='current_policy.pkl')
+    collecting_pipeline = CollectPipeline(init_model='current_policy.pth')
     collecting_pipeline.run()
 else:
     print('暂不支持您选择的框架')
