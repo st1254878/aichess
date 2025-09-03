@@ -6,8 +6,7 @@ from game import move_action2move_id, Game, Board
 from mcts import MCTSPlayer
 import time
 from config import CONFIG
-
-
+from mcts_pure import MCTS_Pure
 
 if CONFIG['use_frame'] == 'paddle':
     from paddle_net import PolicyValueNet
@@ -23,8 +22,11 @@ class greedy_player:
         self.player = p
 
     def get_action(self, board):
-        move_list = board.greedys()
-        move = random.choice(move_list)
+        eat_move_list,fallback_movelist = board.greedys()
+        if eat_move_list:
+            move = random.choice(eat_move_list)
+        else:
+            move = random.choice(fallback_movelist)
         time.sleep(0.5)
         return move
 
@@ -51,7 +53,11 @@ class Human:
 if CONFIG['use_frame'] == 'paddle':
     policy_value_net = PolicyValueNet(model_file='current_policy.model')
 elif CONFIG['use_frame'] == 'pytorch':
-    policy_value_net = PolicyValueNet(model_file='current_policy.pth')
+    if CONFIG.get('no_dark_mode', True):
+        policy_value_net = PolicyValueNet(model_file='current_policy_no_dark.pth')
+    else:
+        policy_value_net = PolicyValueNet(model_file='current_policy.pth')
+
     #policy_value_net = PolicyValueNet(model_file=None)
 else:
     print('暂不支持您选择的框架')
@@ -166,9 +172,15 @@ start_player = 1
 
 player_human = Human()
 
+player_random = MCTS_Pure(500)
+
 player_RL = MCTSPlayer(policy_value_net.policy_value_fn,
                                  c_puct=5,
-                                 n_playout=100,
+                                 n_playout=1000,
+                                 is_selfplay=0)
+player_RL2 = MCTSPlayer(policy_value_net.policy_value_fn,
+                                 c_puct=5,
+                                 n_playout=1000,
                                  is_selfplay=0)
 player_greedy = greedy_player()
 
@@ -176,9 +188,10 @@ player_greedy = greedy_player()
 
 board.init_board(start_player)
 p1, p2 = 1, 2
-player_human.set_player_ind(1)
+player_RL2.set_player_ind(1)
 player_RL.set_player_ind(2)
-players = {p1: player_human, p2: player_RL}
+player_human.set_player_ind(2)
+players = {p1: player_RL, p2: player_human}
 
 
 # 切换玩家
@@ -245,7 +258,6 @@ while True:
         if 'start_i_j' in globals():
             del start_i_j
     elif player_in_turn.agent == 'HUMAN':
-
         swicth_player = False
         if len(move_action) == 4:
             move = player_in_turn.get_action(move_action)  # 人類從UI滑鼠操作產生的move_action

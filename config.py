@@ -1,7 +1,7 @@
 CONFIG = {
     'take_multiplier': 1.2,      #吃棋獎勵
-    'kill_action': 30,      #和棋回合数
-    'dirichlet': 0.2,       # 国际象棋，0.3；日本将棋，0.15；围棋，0.03
+    'kill_action': 15,      #和棋回合数
+    'dirichlet': 0.075,       # 国际象棋，0.3；日本将棋，0.15；围棋，0.03
     'play_out': 1000,        # 每次移动的模拟次数
     'c_puct': 6,             # u的权重
     'buffer_size': 100000,   # 经验池大小
@@ -18,4 +18,5 @@ CONFIG = {
     'redis_host': 'localhost',
     'redis_port': 6379,
     'redis_db': 0,
+    'no_dark_mode': False
 }

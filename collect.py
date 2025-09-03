@@ -40,6 +40,13 @@ class CollectPipeline:
         self.buffer_size = CONFIG['buffer_size']  # 经验池大小
         self.data_buffer = deque(maxlen=self.buffer_size)
         self.iters = 0
+
+        # 根據 no_dark_mode 決定不同緩存檔案路徑
+        if CONFIG.get('no_dark_mode', False):
+            self.buffer_path = CONFIG.get('train_data_buffer_path_no_dark', 'train_data_buffer_no_dark.pth')
+        else:
+            self.buffer_path = CONFIG.get('train_data_buffer_path', 'train_data_buffer.pth')
+
         if CONFIG['use_redis']:
             self.redis_cli = my_redis.get_redis_cli()
 
@@ -48,7 +55,10 @@ class CollectPipeline:
         if CONFIG['use_frame'] == 'paddle':
             model_path = CONFIG['paddle_model_path']
         elif CONFIG['use_frame'] == 'pytorch':
-            model_path = CONFIG['pytorch_model_path']
+            if CONFIG.get('no_dark_mode', False):
+                model_path = 'current_policy_no_dark.pth'
+            else:
+                model_path = CONFIG['pytorch_model_path']
         else:
             print('暂不支持所选框架')
         try:
@@ -65,24 +75,8 @@ class CollectPipeline:
     def get_equi_data(self, play_data):
         """左右对称变换，扩充数据集一倍，加速一倍训练速度"""
         extend_data = []
-        # 棋盘状态shape is [9, 4, 8], 走子概率，赢家
         for state, mcts_prob, winner in play_data:
-            # 原始數據
             extend_data.append(zip_array.zip_state_mcts_prob((state, mcts_prob, winner)))
-            '''
-            # 水平翻转后的数据
-            state_flip = state.transpose([1, 2, 0])  # [4, 8, 7]
-            state = state.transpose([1, 2, 0])
-            for i in range(4):
-                for j in range(8):
-                    state_flip[i][j] = state[i][7 - j]
-            state_flip = state_flip.transpose([2, 0, 1])  # 回到 [7, 4, 8]
-
-            # 翻轉 MCTS 概率向量
-            mcts_prob_flip = copy.deepcopy(mcts_prob)
-            for i in range(len(mcts_prob_flip)):
-                mcts_prob_flip[i] = mcts_prob[move_action2move_id[flip_map(move_id2move_action[i])]]
-            extend_data.append(zip_array.zip_state_mcts_prob((state_flip, mcts_prob_flip, winner)))'''
         return extend_data
 
     def collect_selfplay_data(self, n_games=1):
@@ -94,14 +88,10 @@ class CollectPipeline:
             self.episode_len = len(play_data)
             # 增加数据
             play_data = self.get_equi_data(play_data)
-            #state, mcts_prob, winner = play_data
-            #print(state.shape,mcts_prob.shape)
-            for data in play_data:
-                state, mcts_prob, winner = data
+
             if CONFIG['use_redis']:
                 while True:
                     try:
-
                         for d in play_data:
                             self.redis_cli.rpush('train_data_buffer', pickle.dumps(d))
                         self.redis_cli.incr('iters')
@@ -112,27 +102,31 @@ class CollectPipeline:
                         print("存储失败")
                         time.sleep(1)
             else:
-                if os.path.exists(CONFIG['train_data_buffer_path']):
+                if os.path.exists(self.buffer_path):
                     while True:
                         try:
-                            with open(CONFIG['train_data_buffer_path'], 'rb') as data_dict:
+                            with open(self.buffer_path, 'rb') as data_dict:
                                 data_file = pickle.load(data_dict)
-                                self.data_buffer = deque(maxlen=self.buffer_size)
-                                self.data_buffer.extend(data_file['data_buffer'])
+                                old_buffer = data_file['data_buffer']
                                 self.iters = data_file['iters']
-                                del data_file
-                                self.iters += 1
-                                self.data_buffer.extend(play_data)
-                            print('成功载入数据')
+                            self.data_buffer.extend(old_buffer)
+                            self.data_buffer.extend(play_data)
+                            self.iters += 1
+                            print('成功載入並追加資料')
                             break
                         except:
                             time.sleep(30)
                 else:
                     self.data_buffer.extend(play_data)
                     self.iters += 1
-            data_dict = {'data_buffer': self.data_buffer, 'iters': self.iters}
-            with open(CONFIG['train_data_buffer_path'], 'wb') as data_file:
-                pickle.dump(data_dict, data_file)
+
+                while len(self.data_buffer) > self.buffer_size:
+                    self.data_buffer.popleft()
+
+                # 寫入到指定 buffer_path
+                data_dict = {'data_buffer': self.data_buffer, 'iters': self.iters}
+                with open(self.buffer_path, 'wb') as data_file:
+                    pickle.dump(data_dict, data_file)
         return self.iters
 
     def run(self):
@@ -146,6 +140,7 @@ class CollectPipeline:
             print('\n\rquit')
 
 
+# 初始化並運行
 collecting_pipeline = CollectPipeline(init_model='current_policy.pth')
 collecting_pipeline.run()
 

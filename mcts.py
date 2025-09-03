@@ -3,8 +3,12 @@
 
 import numpy as np
 import copy
+
+from matplotlib import pyplot as plt
+
 from config import CONFIG
 from game import get_all_legal_moves_darkchess
+from game import Game
 move_id2move_action, move_action2move_id = get_all_legal_moves_darkchess()
 
 def softmax(x):
@@ -122,7 +126,7 @@ class MCTS(object):
         # 必须添加符号，因为两个玩家共用一个搜索树
         node.update_recursive(-leaf_value)
 
-    def get_move_probs(self, state, temp=1e-3):
+    def get_move_probs(self, state, temp=1e-3, plot_probs=True):
         """
         按顺序运行所有搜索并返回可用的动作及其相应的概率
         state:当前游戏的状态
@@ -137,6 +141,34 @@ class MCTS(object):
                      for act, node in self._root._children.items()]
         acts, visits = zip(*act_visits)
         act_probs = softmax(1.0 / temp * np.log(np.array(visits) + 1e-10))
+        '''
+        if plot_probs:
+            eat_ids = []
+            for a in acts:
+                y1, x1, y2, x2 = map(int, move_id2move_action[a])
+                target = state.state_deque[-1][y2][x2]
+                if target not in ('一一', '暗棋') and state.current_player_color not in target:
+                    eat_ids.append(a)
+
+            x = np.arange(len(acts))
+            colors = ['red' if a in eat_ids else 'blue' for a in acts]
+            labels = [f"{y1},{x1}→{y2},{x2}" for a in acts
+                      for y1, x1, y2, x2 in [move_id2move_action[a]]]
+
+            plt.figure(figsize=(10, 4))
+            bars = plt.bar(x, act_probs, color=colors)
+
+            # 標出訪問次數
+            for bar, v in zip(bars, visits):
+                plt.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
+                         f"{v}", ha='center', va='bottom', fontsize=7, rotation=90)
+
+            plt.xticks(x, labels, rotation=90, fontsize=6)
+            plt.xlabel("Available Moves")
+            plt.ylabel("Probability")
+            plt.title("Move Probability (Raw MCTS Output) - visits shown")
+            plt.tight_layout()
+            plt.show()'''
         return acts, act_probs
 
     def update_with_move(self, last_move):
@@ -152,9 +184,22 @@ class MCTS(object):
     def __str__(self):
         return 'MCTS'
 
+def plot_move_probs(acts, probs, eat_ids, title):
+    x = np.arange(len(acts))
+    colors = ['red' if a in eat_ids else 'blue' for a in acts]
+    labels = [f"{y1},{x1}→{y2},{x2}" for a in acts for y1, x1, y2, x2 in [move_id2move_action[a]]]
 
+    plt.figure(figsize=(8, 3))
+    plt.bar(x, probs, color=colors)
+    plt.xticks(x, labels, rotation=90, fontsize=6)
+    plt.xlabel("Available Moves")
+    plt.ylabel("Probability")
+    plt.title(title)
+    plt.tight_layout()
+    plt.show()
 # 基于MCTS的AI玩家
 class MCTSPlayer(object):
+
 
     def __init__(self, policy_value_function, c_puct=5, n_playout=2000, is_selfplay=0):
         self.mcts = MCTS(policy_value_function, c_puct, n_playout)
@@ -178,23 +223,30 @@ class MCTSPlayer(object):
 
         acts, probs = self.mcts.get_move_probs(board, temp)
         eat_ids = []
+        move_ids = []
+        #Game(board).graphic(board)
         for a in acts:
             y1, x1, y2, x2 = map(int, move_id2move_action[a])
+            start = board.state_deque[-1][y1][x1]
             target = board.state_deque[-1][y2][x2]
             if target not in ('一一', '暗棋') and board.current_player_color not in target:
+                #print(start,target,sep=" ")
                 eat_ids.append(a)
-
-        if eat_ids:  # 對每個吃子放大 1.2 倍
+        if eat_ids:
+            #print(board.start_player)
             eat_index = [i for i, a in enumerate(acts) if a in eat_ids]
             probs = probs.copy()
-            probs[eat_index] *= 1.2
+            probs[eat_index] *= 20
             probs /= probs.sum()
         move_probs[list(acts)] = probs
+        #if eat_ids:
+           #plot_move_probs(acts, probs, eat_ids, "Move Probability (After Amplification)")
         if self._is_selfplay:
             # 添加Dirichlet Noise进行探索（自我对弈需要）
+
             move = np.random.choice(
                 acts,
-                p=0.75*probs + 0.25*np.random.dirichlet(CONFIG['dirichlet'] * np.ones(len(probs)))
+                p=0.7 * probs + 0.3 * np.random.dirichlet(CONFIG['dirichlet'] * np.ones(len(probs)))
             )
             # 更新根节点并重用搜索树
             self.mcts.update_with_move(move)

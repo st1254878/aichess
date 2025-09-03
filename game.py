@@ -3,15 +3,14 @@
 import numpy as np
 import copy
 import time
+
+from matplotlib import pyplot as plt
+
 from config import CONFIG
 from collections import deque   # 这个队列用来判断长将或长捉
 import random
 import random
 def generate_dark_chess_board():
-    red_pieces = ['红帅'] + ['红士'] * 2 + ['红象'] * 2 + ['红马'] * 2 + ['红车'] * 2 + ['红炮'] * 2 + ['红兵'] * 5
-    black_pieces = ['黑帅'] + ['黑士'] * 2 + ['黑象'] * 2 + ['黑马'] * 2 + ['黑车'] * 2 + ['黑炮'] * 2 + ['黑兵'] * 5
-    all_pieces = red_pieces + black_pieces
-    random.shuffle(all_pieces)
     board = []
     for i in range(4):
         row = []
@@ -20,15 +19,36 @@ def generate_dark_chess_board():
         board.append(row)
 
     return board
+
+
+def init_full_open_board():
+    # 假設 all_pieces 是所有 32 個棋子的列表，例如 ["rP", "rP", ..., "bK"]
+    red_pieces = ['红帅'] + ['红士'] * 2 + ['红象'] * 2 + ['红马'] * 2 + ['红车'] * 2 + ['红炮'] * 2 + ['红兵'] * 5
+    black_pieces = ['黑帅'] + ['黑士'] * 2 + ['黑象'] * 2 + ['黑马'] * 2 + ['黑车'] * 2 + ['黑炮'] * 2 + ['黑兵'] * 5
+    all_pieces = red_pieces + black_pieces
+    random.shuffle(all_pieces)
+    board = []
+    index = 0
+    for y in range(4):
+        row = []
+        for x in range(8):
+            row.append(all_pieces[index])
+            index += 1
+        board.append(row)
+
+    return board
+    # 沒有暗棋了，所以 remain_pieces 清空
 # 列表来表示棋盘，红方在上，黑方在下。使用时需要使用深拷贝
 state_list_init = generate_dark_chess_board()
-
+non_covered_state_list_init = init_full_open_board()
 
 # deque来存储棋盘状态，长度为4
+non_covered_state_deque_init = deque(maxlen=4)
 state_deque_init = deque(maxlen=4)
 for _ in range(4):
     state_deque_init.append(copy.deepcopy(state_list_init))
-
+for _ in range(4):
+    non_covered_state_deque_init.append(copy.deepcopy(non_covered_state_list_init))
 
 # 构建一个字典：字符串到数组的映射，函数：数组到字符串的映射
 string2array = dict(红车=np.array([1, 0, 0, 0, 0, 0, 0]), 红马=np.array([0, 1, 0, 0, 0, 0, 0]),
@@ -106,45 +126,6 @@ def get_all_legal_moves_darkchess():
 
 
     return _move_id2move_action, _move_action2move_id
-def get_all_legal_moves():
-    _move_id2move_action = {}
-    _move_action2move_id = {}
-    row = ['0', '1', '2', '3', '4', '5', '6', '7', '8']
-    column = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
-    # 士的全部走法
-    advisor_labels = ['0314', '1403', '0514', '1405', '2314', '1423', '2514', '1425',
-                      '9384', '8493', '9584', '8495', '7384', '8473', '7584', '8475']
-    # 象的全部走法
-    bishop_labels = ['2002', '0220', '2042', '4220', '0224', '2402', '4224', '2442',
-                     '2406', '0624', '2446', '4624', '0628', '2806', '4628', '2846',
-                     '7052', '5270', '7092', '9270', '5274', '7452', '9274', '7492',
-                     '7456', '5674', '7496', '9674', '5678', '7856', '9678', '7896']
-    idx = 0
-    for l1 in range(10):
-        for n1 in range(9):
-            destinations = [(t, n1) for t in range(10)] + \
-                           [(l1, t) for t in range(9)] + \
-                           [(l1 + a, n1 + b) for (a, b) in
-                            [(-2, -1), (-1, -2), (-2, 1), (1, -2), (2, -1), (-1, 2), (2, 1), (1, 2)]]  # 马走日
-            for (l2, n2) in destinations:
-                if (l1, n1) != (l2, n2) and l2 in range(10) and n2 in range(9):
-                    action = column[l1] + row[n1] + column[l2] + row[n2]
-                    _move_id2move_action[idx] = action
-                    _move_action2move_id[action] = idx
-                    idx += 1
-
-    for action in advisor_labels:
-        _move_id2move_action[idx] = action
-        _move_action2move_id[action] = idx
-        idx += 1
-
-    for action in bishop_labels:
-        _move_id2move_action[idx] = action
-        _move_action2move_id[action] = idx
-        idx += 1
-
-    return _move_id2move_action, _move_action2move_id
-
 
 move_id2move_action, move_action2move_id = get_all_legal_moves_darkchess()
 
@@ -170,42 +151,6 @@ def check_bounds(toY, toX):
 
 
 # 不能走到自己的棋子位置
-'''def check_obstruct_dark_chess(piece, current_player_color, current_piece):
-    # 空格：可以走
-    if piece == '一一':
-        return True
-
-    # 同色：不能吃
-    if (current_player_color == '红' and '红' in piece) or \
-       (current_player_color == '黑' and '黑' in piece):
-        return False
-
-    # 提取棋子強度（越大數字越強）
-    def get_strength(p):
-        if '兵' in p:
-            return 1
-        elif '炮' in p:
-            return 0
-        elif '馬' in p:
-            return 2
-        elif '象' in p:
-            return 4
-        elif '士' in p:
-            return 5
-        elif '車' in p:
-            return 3
-        elif '帅' in p:
-            return 6
-        else:
-            return 0  # 預設（或未知）
-
-    # 特判：兵可以吃兵與帥
-    if ('兵' in current_piece) and \
-       (('兵' in piece) or ('帅' in piece)):
-        return True
-
-    # 一般情況：大吃小
-    return get_strength(current_piece) >= get_strength(piece)'''
 def check_obstruct(piece, current_player_color):
     # 当走到的位置存在棋子的时候，进行一次判断
     if piece != '一一':
@@ -362,10 +307,7 @@ def get_greedy_move(state_deque, current_player_color):
             # 普通走棋
             fallback_moves.append(move_id)
 
-    if eat_moves:
-        return eat_moves
-    else:
-        return fallback_moves
+    return eat_moves,fallback_moves
 
 # 棋盘逻辑控制
 class Board(object):
@@ -379,34 +321,39 @@ class Board(object):
         self.state_deque = copy.deepcopy(state_deque_init)
 
     # 初始化棋盘的方法
-    def init_board(self, start_player=1):   # 传入先手玩家的id
-        # 增加一个颜色到id的映射字典，id到颜色的映射字典
+    def init_board(self, start_player = random.choice([1, 2])):   # 传入先手玩家的id
+        # 增加一个颜色到id的映射字典，id到颜色的映射字
         # 永远是红方先移动
-        red_pieces = ['红帅'] + ['红士'] * 2 + ['红象'] * 2 + ['红马'] * 2 + ['红车'] * 2 + ['红炮'] * 2 + ['红兵'] * 5
-        black_pieces = ['黑帅'] + ['黑士'] * 2 + ['黑象'] * 2 + ['黑马'] * 2 + ['黑车'] * 2 + ['黑炮'] * 2 + ['黑兵'] * 5
-        covered_pieces = red_pieces + black_pieces
-        start_player = random.choice([1,2])
-        random.shuffle(covered_pieces)
-        self.remain_pieces = covered_pieces
+
+        # 初始化棋盘状态
+        if CONFIG.get("no_dark_mode", True):
+            self.remain_pieces = []
+            self.state_list = copy.deepcopy(non_covered_state_list_init)
+            self.state_deque = copy.deepcopy(non_covered_state_deque_init)
+        else:
+            red_pieces = ['红帅'] + ['红士'] * 2 + ['红象'] * 2 + ['红马'] * 2 + ['红车'] * 2 + ['红炮'] * 2 + [
+                '红兵'] * 5
+            black_pieces = ['黑帅'] + ['黑士'] * 2 + ['黑象'] * 2 + ['黑马'] * 2 + ['黑车'] * 2 + ['黑炮'] * 2 + [
+                '黑兵'] * 5
+            covered_pieces = red_pieces + black_pieces
+            random.shuffle(covered_pieces)
+            self.remain_pieces = covered_pieces
+            self.state_list = copy.deepcopy(state_list_init)
+            self.state_deque = copy.deepcopy(state_deque_init)
         self.first_move = True
         self.start_player = start_player
+        self.id2color = {1: '红', 2: '黑'}
+        self.color2id = {'红': 1, '黑': 2}
         if start_player == 1:
-            self.id2color = {1: '红', 2: '黑'}
-            self.color2id = {'红': 1, '黑': 2}
             self.backhand_player = 2
-        elif start_player == 2:
-            self.id2color = {2: '黑', 1: '红'}
-            self.color2id = {'黑': 2, '红': 1}
+        else:
             self.backhand_player = 1
         # 当前手玩家，也就是先手玩家
-        self.current_player_color = self.id2color[start_player]     # 红
+        self.current_player_color = self.id2color[start_player]
         if start_player == 1 :
             self.current_player_id = self.color2id['红']
         else:
             self.current_player_id = self.color2id['黑']
-        # 初始化棋盘状态
-        self.state_list = copy.deepcopy(state_list_init)
-        self.state_deque = copy.deepcopy(state_deque_init)
         # 初始化最后落子位置
         self.last_move = -1
         # 记录游戏中吃子的回合数
@@ -440,8 +387,10 @@ class Board(object):
             _current_state[7][start_position[0]][start_position[1]] = -1
             _current_state[7][end_position[0]][end_position[1]] = 1
         # 指出当前是哪个玩家走子
-        if self.action_count % 2 == 0:
+        if self.current_player_id == self.start_player:
             _current_state[8][:, :] = 1.0
+        else:
+            _current_state[8][:, :] = 0.0
 
         return _current_state
 
@@ -456,16 +405,21 @@ class Board(object):
         if start_x == end_x and start_y == end_y:
             flip = True
         state_list = copy.deepcopy(self.state_deque[-1])
+        reward = 0.0  # 新增 reward
         # 判断是否吃子
         if flip:
             if self.first_move:
                 self.first_move = False
                 while self.current_player_color not in self.remain_pieces[0]:
-                    self.remain_pieces = self.remain_pieces[1:] + self.remain_pieces[:1]
+                    random.shuffle(self.remain_pieces)
+            else:
+                random.shuffle(self.remain_pieces)
+
             state_list[end_y][end_x] = self.remain_pieces[0]
             self.remain_pieces.pop(0)
         elif state_list[end_y][end_x] != '一一':
             # 如果吃掉对方的帅，则返回当前的current_player胜利
+            reward = self.get_piece_value(state_list[end_y][end_x])
             self.kill_action = 0
         else:
             self.kill_action += 1
@@ -478,20 +432,27 @@ class Board(object):
         # 记录最后一次移动的位置
         self.last_move = move
         self.state_deque.append(state_list)
-        move_list = self.greedys()
-        if move_list == []:
+        eat, fallback = self.greedys()
+        if eat == [] and fallback == []:
             if self.current_player_color == '红':
                 self.winner = self.color2id['黑']
             else:
                 self.winner = self.color2id['红']
+        return reward
     # 是否产生赢家
     def has_a_winner(self):
         """一共有三种状态，红方胜，黑方胜，平局"""
         if self.winner is not None:
             return True, self.winner
         elif self.kill_action >= CONFIG['kill_action']:  # 平局先手判负
-            # return False, -1
-            return True, self.backhand_player
+            red_strength = self.calc_side_strength('红')
+            black_strength = self.calc_side_strength('黑')
+            if red_strength > black_strength:
+                return True, self.color2id['红']
+            elif black_strength > red_strength:
+                return True, self.color2id['黑']
+            else:
+                return True, -1  # 平局
         return False, -1
 
     # 检查当前棋局是否结束
@@ -499,8 +460,7 @@ class Board(object):
         win, winner = self.has_a_winner()
         if win:
             return True, winner
-        elif self.kill_action >= CONFIG['kill_action']:  # 平局，没有赢家
-            return True, -1
+
         return False, -1
 
     def get_current_player_color(self):
@@ -509,6 +469,25 @@ class Board(object):
     def get_current_player_id(self):
         return self.current_player_id
 
+    def get_piece_value(self, piece):
+        """給每個棋子一個分值"""
+        values = {
+            '帅': 8, '士': 6, '象': 4, '马': 2, '车': 3, '炮': 4, '兵': 1
+        }
+        if piece == '一一':  # 空位
+            return 0
+        # 去掉顏色，只保留棋子名稱
+        name = piece[1:]
+        return values.get(name, 0)
+
+    def calc_side_strength(self, color):
+        """計算指定顏色的棋力總分"""
+        strength = 0
+        for row in self.state_deque[-1]:
+            for p in row:
+                if p.startswith(color):
+                    strength += self.get_piece_value(p)
+        return strength
 
 # 在Board类基础上定义Game类，该类用于启动并控制一整局对局的完整流程，并收集对局过程中的数据，以及进行棋盘的展示
 class Game(object):
@@ -517,7 +496,7 @@ class Game(object):
         self.board = board
 
     # 可视化
-    def graphic(self, board, player1_color, player2_color):
+    def graphic(self, board):
         print_board(state_list2state_array(board.state_deque[-1]))
 
     # 用于人机对战，人人对战等
@@ -526,12 +505,18 @@ class Game(object):
             raise Exception('start_player should be either 1 (player1 first) '
                             'or 2 (player2 first)')
         self.board.init_board(start_player)  # 初始化棋盘
-        p1, p2 = 1, 2
-        player1.set_player_ind(1)
-        player2.set_player_ind(2)
-        players = {p1: player1, p2: player2}
+        if start_player==1:
+            p1, p2 = 1, 2
+            player1.set_player_ind(1)
+            player2.set_player_ind(2)
+            players = {p1: player1, p2: player2}
+        else:
+            p1, p2 = 1, 2
+            player1.set_player_ind(1)
+            player2.set_player_ind(2)
+            players = {p1: player1, p2: player2}
         if is_shown:
-            self.graphic(self.board, player1.player, player2.player)
+            self.graphic(self.board)
 
         while True:
             current_player = self.board.get_current_player_id()  # 红子对应的玩家id
@@ -542,9 +527,15 @@ class Game(object):
             self.board.do_move(move)  # 棋盘做出改变
 
             if is_shown:
-                self.graphic(self.board, player1.player, player2.player)
+                self.graphic(self.board)
             end, winner = self.board.game_end()
             if end:
+                if is_shown:
+                    red_strength = self.board.calc_side_strength('红')
+                    black_strength = self.board.calc_side_strength('黑')
+                    if red_strength != 0 and black_strength != 0:
+                        print("紅 : ", red_strength,sep="")
+                        print("黑 : ", black_strength, sep="")
                 if winner != -1:
                     print("Game end. Winner is", players[winner]," ",self.board.current_player_color,sep="")
                 else:
@@ -558,8 +549,12 @@ class Game(object):
         states, mcts_probs, current_players = [], [], []
         # 开始自我对弈
         _count = 0
+        eat_count = 0
+        rewards = []
         while True:
             _count += 1
+            self.graphic(self.board)
+            eat_move_list, fallback_movelist = self.board.greedys()
             if _count % 20 == 0:
                 start_time = time.time()
                 move, move_probs = player.get_action(self.board,
@@ -570,20 +565,41 @@ class Game(object):
                 move, move_probs = player.get_action(self.board,
                                                      temp=temp,
                                                      return_prob=1)
-            # 保存自我对弈的数据
             states.append(self.board.current_state())
             mcts_probs.append(move_probs)
             current_players.append(self.board.current_player_id)
+            # 保存自我对弈的数据
+            # 轉換成 numpy array
+
             # 执行一步落子
-            self.board.do_move(move)
+            reward = self.board.do_move(move)
+            if reward != 0:
+                if self.board.current_player_id == 1:  # 現在輪到紅，剛剛是黑吃子
+                    rewards.append(-reward)
+                else:  # 現在輪到黑，剛剛是紅吃子
+                    rewards.append(reward)
+            else:
+                rewards.append(0.0)
+            print(reward)
             end, winner = self.board.game_end()
             if end:
+                red_strength = self.board.calc_side_strength('红')
+                black_strength = self.board.calc_side_strength('黑')
+                total_abs = sum(abs(r) for r in rewards) + 1e-8
+                rewards = [0.8 * r / total_abs for r in rewards]
                 # 从每一个状态state对应的玩家的视角保存胜负信息
                 winner_z = np.zeros(len(current_players))
                 if winner != -1:
                     winner_z[np.array(current_players) == winner] = 1.0
                     winner_z[np.array(current_players) != winner] = -1.0
                 # 重置蒙特卡洛根节点
+                winner_z += np.array(rewards)
+
+                red_rewards = [r for r, p in zip(winner_z, current_players) if p == 1]
+                black_rewards = [r for r, p in zip(winner_z, current_players) if p == 2]
+
+                print("Red rewards:", red_rewards)
+                print("Black rewards:", black_rewards)
                 player.reset_player()
                 if is_shown:
                     if winner != -1:
