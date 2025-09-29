@@ -7,28 +7,13 @@ from mcts import MCTSPlayer
 import time
 from config import CONFIG
 from mcts_pure import MCTS_Pure
-
+from players import GreedyPlayer, RandomPlayer, ChatGPTPlayer
 if CONFIG['use_frame'] == 'paddle':
     from paddle_net import PolicyValueNet
 elif CONFIG['use_frame'] == 'pytorch':
     from pytorch_net import PolicyValueNet
 else:
     print('暂不支持您选择的框架')
-class greedy_player:
-    def __init__(self):
-        self.agent = 'AI'
-
-    def set_player_ind(self, p):
-        self.player = p
-
-    def get_action(self, board):
-        eat_move_list,fallback_movelist = board.greedys()
-        if eat_move_list:
-            move = random.choice(eat_move_list)
-        else:
-            move = random.choice(fallback_movelist)
-        time.sleep(0.5)
-        return move
 
 class Human:
 
@@ -53,10 +38,7 @@ class Human:
 if CONFIG['use_frame'] == 'paddle':
     policy_value_net = PolicyValueNet(model_file='current_policy.model')
 elif CONFIG['use_frame'] == 'pytorch':
-    if CONFIG.get('no_dark_mode', True):
-        policy_value_net = PolicyValueNet(model_file='current_policy_no_dark.pth')
-    else:
-        policy_value_net = PolicyValueNet(model_file='current_policy.pth')
+    policy_value_net = PolicyValueNet(model_file='current_policy.pth')
 
     #policy_value_net = PolicyValueNet(model_file=None)
 else:
@@ -175,21 +157,22 @@ player_human = Human()
 player_random = MCTS_Pure(500)
 
 player_RL = MCTSPlayer(policy_value_net.policy_value_fn,
-                                 c_puct=5,
+                                 c_puct=1,
                                  n_playout=1000,
                                  is_selfplay=0)
 player_RL2 = MCTSPlayer(policy_value_net.policy_value_fn,
                                  c_puct=5,
-                                 n_playout=1000,
+                                 n_playout=500,
                                  is_selfplay=0)
-player_greedy = greedy_player()
+player_greedy = GreedyPlayer()
 
+player_gpt = ChatGPTPlayer()
 # player2 = Human()
 
 board.init_board(start_player)
 p1, p2 = 1, 2
-player_RL2.set_player_ind(1)
-player_RL.set_player_ind(2)
+player_RL.set_player_ind(1)
+player_gpt.set_player_ind(2)
 player_human.set_player_ind(2)
 players = {p1: player_RL, p2: player_human}
 

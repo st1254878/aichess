@@ -201,7 +201,7 @@ def plot_move_probs(acts, probs, eat_ids, title):
 class MCTSPlayer(object):
 
 
-    def __init__(self, policy_value_function, c_puct=5, n_playout=2000, is_selfplay=0):
+    def __init__(self, policy_value_function, c_puct=3, n_playout=2000, is_selfplay=0):
         self.mcts = MCTS(policy_value_function, c_puct, n_playout)
         self._is_selfplay = is_selfplay
         self.agent = "AI"
@@ -236,7 +236,7 @@ class MCTSPlayer(object):
             #print(board.start_player)
             eat_index = [i for i, a in enumerate(acts) if a in eat_ids]
             probs = probs.copy()
-            probs[eat_index] *= 20
+            probs[eat_index] *= 30
             probs /= probs.sum()
         move_probs[list(acts)] = probs
         #if eat_ids:
@@ -246,7 +246,7 @@ class MCTSPlayer(object):
 
             move = np.random.choice(
                 acts,
-                p=0.7 * probs + 0.3 * np.random.dirichlet(CONFIG['dirichlet'] * np.ones(len(probs)))
+                p=0.8 * probs + 0.2 * np.random.dirichlet(CONFIG['dirichlet'] * np.ones(len(probs)))
             )
             # 更新根节点并重用搜索树
             self.mcts.update_with_move(move)

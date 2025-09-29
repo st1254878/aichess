@@ -1,15 +1,20 @@
 """棋盘游戏控制"""
+import os
 
 import numpy as np
 import copy
 import time
 
+import torch
 from matplotlib import pyplot as plt
-
 from config import CONFIG
 from collections import deque   # 这个队列用来判断长将或长捉
 import random
 import random
+
+from pytorch_net import PolicyValueNet
+
+
 def generate_dark_chess_board():
     board = []
     for i in range(4):
@@ -19,6 +24,20 @@ def generate_dark_chess_board():
         board.append(row)
 
     return board
+
+def load_latest_model(model_dir=".", use_checkpoint=True):
+    """
+    自動載入最新模型
+    - 如果 use_checkpoint=True，優先找 checkpoint_xxx.pth
+    - 否則使用 current_policy.pth
+    """
+    model_path = None
+    # 如果沒有 checkpoint，或 use_checkpoint=False，就用 current_policy
+    if model_path is None:
+        model_path = os.path.join(model_dir, "current_policy.pth")
+
+    print(f"載入模型: {model_path}")
+    return PolicyValueNet(model_file=model_path)
 
 
 def init_full_open_board():
@@ -418,7 +437,6 @@ class Board(object):
             state_list[end_y][end_x] = self.remain_pieces[0]
             self.remain_pieces.pop(0)
         elif state_list[end_y][end_x] != '一一':
-            # 如果吃掉对方的帅，则返回当前的current_player胜利
             reward = self.get_piece_value(state_list[end_y][end_x])
             self.kill_action = 0
         else:
@@ -472,7 +490,7 @@ class Board(object):
     def get_piece_value(self, piece):
         """給每個棋子一個分值"""
         values = {
-            '帅': 8, '士': 6, '象': 4, '马': 2, '车': 3, '炮': 4, '兵': 1
+            '帅': 8, '士': 5, '象': 4, '马': 2, '车': 3, '炮': 4, '兵': 1
         }
         if piece == '一一':  # 空位
             return 0
@@ -494,7 +512,7 @@ class Game(object):
 
     def __init__(self, board):
         self.board = board
-
+        self.model_for_value = PolicyValueNet(model_file="current_policy.pth")
     # 可视化
     def graphic(self, board):
         print_board(state_list2state_array(board.state_deque[-1]))
@@ -515,27 +533,30 @@ class Game(object):
             player1.set_player_ind(1)
             player2.set_player_ind(2)
             players = {p1: player1, p2: player2}
+
         if is_shown:
             self.graphic(self.board)
-
         while True:
             current_player = self.board.get_current_player_id()  # 红子对应的玩家id
             player_in_turn = players[current_player]  # 决定当前玩家的代理
-            move = player_in_turn.get_action(self.board)  # 当前玩家代理拿到动作
-
+            move = player_in_turn.get_action(self.board)
+            state = self.board.current_state()
             # print(self.board.remain_pieces)
             self.board.do_move(move)  # 棋盘做出改变
 
             if is_shown:
                 self.graphic(self.board)
+                state = np.expand_dims(state, 0)  # 增加 batch 維度
+                state = state.astype('float32')
+                _, v = self.model_for_value.policy_value(state)
+                print(f"Predicted V for Player {current_player}: {v}")
+                red_strength = self.board.calc_side_strength('红')
+                black_strength = self.board.calc_side_strength('黑')
+                if red_strength != 0 and black_strength != 0:
+                    print("紅 : ", red_strength, sep="")
+                    print("黑 : ", black_strength, sep="")
             end, winner = self.board.game_end()
             if end:
-                if is_shown:
-                    red_strength = self.board.calc_side_strength('红')
-                    black_strength = self.board.calc_side_strength('黑')
-                    if red_strength != 0 and black_strength != 0:
-                        print("紅 : ", red_strength,sep="")
-                        print("黑 : ", black_strength, sep="")
                 if winner != -1:
                     print("Game end. Winner is", players[winner]," ",self.board.current_player_color,sep="")
                 else:
@@ -543,7 +564,7 @@ class Game(object):
                 return winner
 
     # 使用蒙特卡洛树搜索开始自我对弈，存储游戏状态（状态，蒙特卡洛落子概率，胜负手）三元组用于神经网络训练
-    def start_self_play(self, player, is_shown=True, temp=1e-3):
+    def start_self_play(self, player, is_shown=False, temp=1e-3):
         self.board.init_board()     # 初始化棋盘, start_player=1
         p1, p2 = 1, 2
         states, mcts_probs, current_players = [], [], []
@@ -553,7 +574,8 @@ class Game(object):
         rewards = []
         while True:
             _count += 1
-            self.graphic(self.board)
+            if is_shown:
+                self.graphic(self.board)
             eat_move_list, fallback_movelist = self.board.greedys()
             if _count % 20 == 0:
                 start_time = time.time()
@@ -574,32 +596,32 @@ class Game(object):
             # 执行一步落子
             reward = self.board.do_move(move)
             if reward != 0:
-                if self.board.current_player_id == 1:  # 現在輪到紅，剛剛是黑吃子
-                    rewards.append(-reward)
-                else:  # 現在輪到黑，剛剛是紅吃子
-                    rewards.append(reward)
+                rewards.append(reward)
             else:
                 rewards.append(0.0)
-            print(reward)
             end, winner = self.board.game_end()
             if end:
-                red_strength = self.board.calc_side_strength('红')
-                black_strength = self.board.calc_side_strength('黑')
-                total_abs = sum(abs(r) for r in rewards) + 1e-8
-                rewards = [0.8 * r / total_abs for r in rewards]
-                # 从每一个状态state对应的玩家的视角保存胜负信息
+                # 先生成勝負結果 (winner_z)
                 winner_z = np.zeros(len(current_players))
                 if winner != -1:
                     winner_z[np.array(current_players) == winner] = 1.0
                     winner_z[np.array(current_players) != winner] = -1.0
-                # 重置蒙特卡洛根节点
-                winner_z += np.array(rewards)
+                # 把 winner_z 和 rewards 合併
+                total_abs = sum(abs(r) for r in rewards) + 1e-8
+                rewards = [5 * r / total_abs for r in rewards]
+                merged_rewards = np.array(rewards) + winner_z
+                # 再正規化到 [-1, 1]
+                max_abs = np.max(np.abs(merged_rewards)) + 1e-8
+                merged_rewards = merged_rewards / max_abs
+                # 這裡直接把 merged_rewards 當作最後的 winner_z
+                winner_z = merged_rewards
 
                 red_rewards = [r for r, p in zip(winner_z, current_players) if p == 1]
                 black_rewards = [r for r, p in zip(winner_z, current_players) if p == 2]
 
                 print("Red rewards:", red_rewards)
                 print("Black rewards:", black_rewards)
+
                 player.reset_player()
                 if is_shown:
                     if winner != -1:
@@ -608,7 +630,6 @@ class Game(object):
                         print('Game end. Tie')
 
                 return winner, zip(states, mcts_probs, winner_z)
-
 
 if __name__ == '__main__':
     board = Board()

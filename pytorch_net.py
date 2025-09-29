@@ -115,7 +115,7 @@ class PolicyValueNet:
         current_state = np.ascontiguousarray(board.current_state().reshape(-1, 9, 4, 8)).astype('float16')
         current_state = torch.as_tensor(current_state).to(self.device)
         # 使用神经网络进行预测
-        with autocast(): #半精度fp16
+        with torch.amp.autocast("cuda"): #半精度fp16
             log_act_probs, value = self.policy_value_net(current_state)
         log_act_probs, value = log_act_probs.cpu() , value.cpu()
         act_probs = np.exp(log_act_probs.numpy().flatten()) if CONFIG['use_frame'] == 'paddle' else np.exp(log_act_probs.detach().numpy().astype('float16').flatten())

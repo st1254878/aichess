@@ -3,7 +3,8 @@ CONFIG = {
     'kill_action': 15,      #和棋回合数
     'dirichlet': 0.075,       # 国际象棋，0.3；日本将棋，0.15；围棋，0.03
     'play_out': 1000,        # 每次移动的模拟次数
-    'c_puct': 6,             # u的权重
+    'c_puct': 3,             # u的权重
+    'c_puct_for_fight': 1,
     'buffer_size': 100000,   # 经验池大小
     'paddle_model_path': 'current_policy.model',      # paddle模型路径
     'pytorch_model_path': 'current_policy.pth',   # pytorch模型路径

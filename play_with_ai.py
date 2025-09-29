@@ -2,7 +2,6 @@ import random
 from game import move_action2move_id, Game, Board
 from mcts import MCTSPlayer
 from config import CONFIG
-
 if CONFIG['use_frame'] == 'paddle':
     from paddle_net import PolicyValueNet
 elif CONFIG['use_frame'] == 'pytorch':
@@ -21,6 +20,10 @@ class greedy_player:
 
 # 测试Board中的start_play
 class Human1:
+
+    def __init__(self):
+        self.agent = 'Human'
+
     def get_action(self, board):
         move = move_action2move_id[input('请输入')]
         while move not in board.availables:
@@ -35,14 +38,14 @@ class Human1:
 if CONFIG['use_frame'] == 'paddle':
     policy_value_net = PolicyValueNet(model_file='current_policy.model')
 elif CONFIG['use_frame'] == 'pytorch':
-    policy_value_net = PolicyValueNet(model_file='current_policy.pkl')
+    policy_value_net = PolicyValueNet(model_file='current_policy.pth')
     # policy_value_net = PolicyValueNet(model_file=None)
 else:
     print('暂不支持您选择的框架')
 
 mcts_player = MCTSPlayer(policy_value_net.policy_value_fn,
-                                c_puct=5,
-                                n_playout=100,
+                                c_puct=1,
+                                n_playout=1000,
                                 is_selfplay=0)
 
 human = Human1()
@@ -50,6 +53,6 @@ human2 = Human1()
 greedy_method = greedy_player()
 
 game = Game(board=Board())
-game.start_play(greedy_method, human, start_player=1, is_shown=1)
+game.start_play(human, mcts_player, start_player=1, is_shown=1)
 
 

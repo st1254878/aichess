@@ -1,6 +1,8 @@
 """使用收集到数据进行训练"""
+import glob
 import os
 import random
+import re
 from collections import defaultdict, deque
 
 import numpy as np
@@ -44,19 +46,38 @@ os.makedirs(MODELS_DIR, exist_ok=True)
 
 class TrainPipeline:
     def __init__(self, init_model=None):
-        # 若磁碟已有 best model，嘗試載入（可能為 None）
-        self.best_policy_net = None
-        if os.path.exists(BEST_POLICY_PATH):
-            try:
-                self.best_policy_net = PolicyValueNet(model_file=BEST_POLICY_PATH)
-                print(f"載入 best policy: {BEST_POLICY_PATH}")
-            except Exception as e:
-                print(f"載入 best policy 失敗: {e}")
+        latest_ckpt = None
+        latest_iter = 0
 
+        # --- 自動找最新 checkpoint ---
+        ckpt_list = glob.glob(f"{MODELS_DIR}/current_policy_batch*.pth")
+        if ckpt_list:
+            latest_ckpt = max(ckpt_list, key=os.path.getmtime)
+            # 從檔名取出 batch 數字
+            match = re.search(r'batch(\d+)', latest_ckpt)
+            if match:
+                latest_iter = int(match.group(1))
+            print(f"自動載入最新 checkpoint: {latest_ckpt} (batch {latest_iter})")
+
+        # 若有指定 init_model 或找到最新 checkpoint，就用它
+        model_file = init_model or latest_ckpt
+        if model_file and os.path.exists(model_file):
+            try:
+                self.policy_value_net = PolicyValueNet(model_file=model_file)
+                print(f"✅ 載入模型成功: {model_file}")
+            except Exception as e:
+                print(f"❌ 模型載入失敗，從零開始: {e}")
+                self.policy_value_net = PolicyValueNet()
+        else:
+            print("⚠️ 沒找到 checkpoint，從零開始訓練")
+            self.policy_value_net = PolicyValueNet()
+
+        # --- 記錄從哪個 batch 開始 ---
+        self.start_iter = latest_iter
         self.board = Board()
         self.game = Game(self.board)
         self.n_playout = CONFIG['play_out']
-        self.c_puct = CONFIG['c_puct']
+        self.c_puct = CONFIG['c_puct_for_fight']
         self.learn_rate = 1e-3
         self.lr_multiplier = 1
         self.temp = 1.0
@@ -255,8 +276,7 @@ class TrainPipeline:
 
     def run(self):
         try:
-            for i in range(self.game_batch_num):
-                # 載入資料（根據設定的 TRAIN_DATA_PATH）
+            for i in range(self.start_iter, self.game_batch_num + self.start_iter):
                 if not CONFIG['use_redis']:
                     while True:
                         try:
@@ -311,8 +331,8 @@ class TrainPipeline:
                         print(f"第 {i + 1} 批自對弈訓練，勝率：{win_ratio:.3f}")
 
                         # 儲存條件：勝率要超過閾值且比歷史最佳好
-                        if win_ratio > 0.55 and win_ratio > self.best_win_ratio:
-                            print(f"🎯 新最佳策略發現！勝率 {win_ratio * 100:.2f}% (超過歷史最佳 {self.best_win_ratio:.3f})")
+                        if win_ratio > 0.55 :
+                            print(f"🎯 新最佳策略發現！勝率 {win_ratio * 100:.2f}")
                             self.best_win_ratio = win_ratio
                             self.policy_value_net.save_model(CURRENT_POLICY_PATH)
                             self.policy_value_net.save_model(BEST_POLICY_PATH)
