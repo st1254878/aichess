@@ -338,20 +338,33 @@ def battle_summary(player1, opponents, board, playouts, n_games=100, save_csv=Tr
     if f:
         f.close()
         print(f"📊 對戰結果已存到 {csv_file}")
+    return results
 
-    # --- 畫長條圖 (只顯示 wins) ---
-    opponents_list = list(results.keys())
-    wins = [results[o]["win"] for o in opponents_list]
 
-    plt.figure(figsize=(8, 5))
-    plt.bar(opponents_list, wins, color=["skyblue", "lightgreen", "orange"])
-    plt.xlabel("對手")
-    plt.ylabel("勝利場數")
-    plt.title(f"{player1.agent} vs 不同對手 (各 {n_games} 場)")
-    plt.ylim(0, n_games)
-    for i, v in enumerate(wins):
-        plt.text(i, v + 1, str(v), ha="center", va="bottom", fontsize=10)
+def plot_battle_results_from_csv(csv_file="battle_summary.csv"):
+    opponents = []
+    wins = []
+
+    # --- 讀取 CSV ---
+    with open(csv_file, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            opponents.append(row["Opponent"])
+            wins.append(int(row["Wins"]))
+
+    # --- 畫圖 (黑白 + 斜線) ---
+    fig, ax = plt.subplots(figsize=(8, 5))
+    bars = ax.bar(opponents, wins, color="white", edgecolor="black", hatch="//")
+
+    ax.set_xlabel("對手")
+    ax.set_ylabel("勝利場數")
+    ax.set_title("對戰結果 (只顯示勝場數)")
+    ax.set_ylim(0, max(wins) + 5)
+
+    # 在柱狀圖上加數字
+    for bar, v in zip(bars, wins):
+        ax.text(bar.get_x() + bar.get_width() / 2, v + 0.5, str(v),
+                ha="center", va="bottom", fontsize=10)
+
     plt.tight_layout()
     plt.show()
-
-    return results

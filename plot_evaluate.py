@@ -1,5 +1,5 @@
 from game import Board
-from players import RandomPlayer, GreedyPlayer, battle, ChatGPTPlayer, battle_summary
+from players import RandomPlayer, GreedyPlayer, battle, ChatGPTPlayer, battle_summary, plot_battle_results_from_csv
 from mcts import MCTSPlayer
 import time
 from config import CONFIG
@@ -35,7 +35,7 @@ opponents = {
 
 results = battle_summary(player_RL, opponents, board, playouts=400, n_games=100)
 print(results)
-
+plot_battle_results_from_csv(csv_file="battle_summary.csv")
 '''res= battle(greedy_agent, gpt_player, board, playout_num, n_games=100, is_shown=False, plot_interval=10)
 print(res)'''
 
