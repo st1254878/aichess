@@ -1,5 +1,5 @@
 from game import Board
-from players import RandomPlayer, GreedyPlayer, battle, ChatGPTPlayer, battle_summary, plot_battle_results_from_csv
+from players import RandomPlayer, GreedyPlayer, ChatGPTPlayer, battle_summary, plot_battle_results_from_csv, evaluate_policy_against_checkpoints
 from mcts import MCTSPlayer
 import time
 from config import CONFIG
@@ -32,10 +32,17 @@ opponents = {
     "GPT": ChatGPTPlayer()
 }
 # 跑 100 場 RL vs Random
+results = evaluate_policy_against_checkpoints(
+    board,
+    model_dir="models",
+    start=1000, end=6000, step=1000,
+    n_games=100,
+    csv_file="post_policy_evaluate.csv"
+)
 
-results = battle_summary(player_RL, opponents, board, playouts=400, n_games=100)
+#results = battle_summary(player_RL, opponents, board, playouts=400, n_games=100)
 print(results)
-plot_battle_results_from_csv(csv_file="battle_summary.csv")
+plot_battle_results_from_csv(csv_file="post_policy_evaluate.csv")
 '''res= battle(greedy_agent, gpt_player, board, playout_num, n_games=100, is_shown=False, plot_interval=10)
 print(res)'''
 

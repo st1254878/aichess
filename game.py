@@ -397,7 +397,6 @@ class Board(object):
         # 第7个平面表示对手player最近一步的落子位置，走子之前的位置为-1，走子之后的位置为1，其余全部是0
         # 第8个平面表示的是当前player是不是先手player，如果是先手player则整个平面全部为1，否则全部为0
         _current_state[:7] = state_list2state_array(self.state_deque[-1]).transpose([2, 0, 1])  # [7, 4, 8]
-
         if self.game_start:
             # 解构self.last_move
             move = move_id2move_action[self.last_move]
@@ -602,19 +601,25 @@ class Game(object):
             end, winner = self.board.game_end()
             if end:
                 # 先生成勝負結果 (winner_z)
+                # 1. 生成 winner_z (主導)
                 winner_z = np.zeros(len(current_players))
                 if winner != -1:
                     winner_z[np.array(current_players) == winner] = 1.0
                     winner_z[np.array(current_players) != winner] = -1.0
-                # 把 winner_z 和 rewards 合併
+
+                # 2. 吃子分數正規化 (副作用)
                 total_abs = sum(abs(r) for r in rewards) + 1e-8
-                rewards = [5 * r / total_abs for r in rewards]
-                merged_rewards = np.array(rewards) + winner_z
-                # 再正規化到 [-1, 1]
+                scaled_rewards = np.array([r / total_abs for r in rewards])  # [-1, 1] 之間
+                alpha = 5  # 吃子影響比重 (可以調整 0.1 ~ 0.5)
+
+                # 3. 合併，勝負為主，吃子為輔
+                merged_rewards = winner_z + alpha * scaled_rewards
+
+                # 4. 縮放到 [-1, 1]
                 max_abs = np.max(np.abs(merged_rewards)) + 1e-8
                 merged_rewards = merged_rewards / max_abs
-                # 這裡直接把 merged_rewards 當作最後的 winner_z
-                winner_z = merged_rewards
+
+                winner_z = merged_rewards  # 取代掉原本的 winner_z
 
                 red_rewards = [r for r, p in zip(winner_z, current_players) if p == 1]
                 black_rewards = [r for r, p in zip(winner_z, current_players) if p == 2]

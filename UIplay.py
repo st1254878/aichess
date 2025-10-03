@@ -2,7 +2,8 @@ import pygame
 import sys
 import copy
 import random
-from game import move_action2move_id, Game, Board
+import numpy as np
+from game import move_action2move_id, Game, Board, move_id2move_action
 from mcts import MCTSPlayer
 import time
 from config import CONFIG
@@ -234,7 +235,31 @@ while True:
     if player_in_turn.agent == 'AI':
         pygame.display.update()
         start_time = time.time()
-        move = player_in_turn.get_action(board)  # 当前玩家代理拿到动作
+        move, probs = player_in_turn.get_action(board, 1, 1)  # 当前玩家代理拿到动作
+        state = board.current_state()
+        state = np.expand_dims(state, 0)  # 增加 batch 維度
+        state = state.astype('float32')
+        _, v = policy_value_net.policy_value(state)
+        # 列出所有合法動作及其概率
+        acts = board.availables  # 合法動作的全域 ID
+        print("合法動作數量:", len(acts))
+        print("合法動作及機率分佈:")
+
+        for move_id in acts:
+            prob = probs[move_id]
+            y1, x1, y2, x2 = map(int, move_id2move_action[move_id])
+            print(f"Move {move_id}: ({y1},{x1})->({y2},{x2}), Prob = {prob:.4f}")
+
+        # 取出合法動作裡的 top3
+        legal_probs = np.array([probs[a] for a in acts])
+        top3_idx = np.argsort(legal_probs)[-3:][::-1]
+        print("\n🔝 Top 3 legal moves:")
+        for rank, i in enumerate(top3_idx, 1):
+            move_id = acts[i]
+            y1, x1, y2, x2 = map(int, move_id2move_action[move_id])
+            print(f"{rank}. Move {move_id}: ({y1},{x1})->({y2},{x2}), Prob = {legal_probs[i]:.4f}")
+
+        print(f"\nPredicted V for Player {player_in_turn}: {v}")
         print('耗时：', time.time() - start_time)
         board.do_move(move)  # 棋盘做出改变
         swicth_player = True

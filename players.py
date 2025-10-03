@@ -4,7 +4,7 @@ import random
 from matplotlib.ticker import MaxNLocator
 
 from game import Game, state_list2state_array, array2string, string2array, move_id2move_action, move_action2move_id
-
+from mcts import MCTSPlayer
 import csv
 import os
 import matplotlib.pyplot as plt
@@ -134,157 +134,33 @@ class Human:
         # UIplay 會用，這裡先放佔位
         return None
 
-def battle(player1, player2, board, playouts, n_games=100, is_shown=True,
-           plot_interval=10, save_csv=True, csv_dir="battle_results"):
-    game = Game(board)
-    results = {"player1_win": 0, "player2_win": 0, "tie": 0}
+def evaluate_policy_against_checkpoints(board,
+                                        model_dir="models",
+                                        start=1000, end=6000, step=1000,
+                                        n_games=100,
+                                        csv_file="post_policy_evaluate.csv"):
 
-    # 累積吃子 / 非吃子 統計
-    total_eat1 = total_non1 = 0
-    total_eat2 = total_non2 = 0
+    current_policy = PolicyValueNet(model_file='current_policy.pth')
+    current_player = MCTSPlayer(current_policy.policy_value_fn,
+                                c_puct=1, n_playout=500, is_selfplay=0)
+    current_player.agent = f"Current-policy"
 
-    # 繪圖資料
-    p1_rates, p2_rates, tie_rates, rounds = [], [], [], []
-    p1_eat_ratios, p2_eat_ratios = [], []
+    # 收集對手 (舊的 checkpoint)
+    opponents = {}
+    for batch in range(start, end + 1, step):
+        filename = f"current_policy_batch{batch}.pth"
+        path = os.path.join(model_dir, filename)
+        if os.path.exists(path):
+            old_policy = PolicyValueNet(model_file=path)
+            old_player = MCTSPlayer(old_policy.policy_value_fn,
+                                    c_puct=1, n_playout=400, is_selfplay=0)
+            old_player.agent = f"Batch{batch}"
+            opponents[f"Batch{batch}"] = old_player
 
-    # --- CSV 初始化 ---
-    if save_csv:
-        os.makedirs(csv_dir, exist_ok=True)
-        fname = os.path.join(csv_dir, f"battle_{player1.agent}_vs_{player2.agent}.csv")
-        f = open(fname, "w", newline="", encoding="utf-8")
-        writer = csv.writer(f)
-        writer.writerow(["Round", "P1_rate", "P2_rate", "Tie_rate", "P1_eat_ratio", "P2_eat_ratio"])
-    else:
-        writer = None
-        f = None
-
-    print("battle start!")
-    for i in range(n_games):
-        board.init_board(1)
-        players = {1: player1, 2: player2}
-
-        if i % 2 == 0:
-            player1.set_player_ind(1); player2.set_player_ind(2)
-        else:
-            player1.set_player_ind(2); player2.set_player_ind(1)
-
-        # 單局吃子/非吃子
-        p1_eat_game = p1_non_game = 0
-        p2_eat_game = p2_non_game = 0
-
-        while True:
-            if is_shown:
-                game.graphic(board)
-
-            current_player_id = board.current_player_id
-            player_in_turn = players[current_player_id]
-
-            eat_moves, fallback_moves = board.greedys()
-            move = player_in_turn.get_action(board)
-
-            if move is None:
-                break
-
-            if move in eat_moves:
-                if player_in_turn == player1:
-                    p1_eat_game += 1
-                else:
-                    p2_eat_game += 1
-            else:
-                if player_in_turn == player1:
-                    p1_non_game += 1
-                else:
-                    p2_non_game += 1
-
-            board.do_move(move)
-            end, winner = board.game_end()
-            if end:
-                if winner == -1:
-                    results["tie"] += 1
-                elif players[winner] == player1:
-                    results["player1_win"] += 1
-                else:
-                    results["player2_win"] += 1
-                break
-
-        # 累加
-        total_eat1 += p1_eat_game
-        total_non1 += p1_non_game
-        total_eat2 += p2_eat_game
-        total_non2 += p2_non_game
-
-        # --- 每場結束就馬上算勝率、吃子比例 ---
-        total_played = results["player1_win"] + results["player2_win"] + results["tie"]
-        p1_rate = results["player1_win"] / total_played if total_played > 0 else 0
-        p2_rate = results["player2_win"] / total_played if total_played > 0 else 0
-        tie_rate = results["tie"] / total_played if total_played > 0 else 0
-
-        p1_total_moves = total_eat1 + total_non1
-        p2_total_moves = total_eat2 + total_non2
-        p1_eat_ratio = total_eat1 / p1_total_moves if p1_total_moves > 0 else 0.0
-        p2_eat_ratio = total_eat2 / p2_total_moves if p2_total_moves > 0 else 0.0
-
-        # 保存到列表（用於畫圖）
-        rounds.append(i + 1)
-        p1_rates.append(p1_rate)
-        p2_rates.append(p2_rate)
-        tie_rates.append(tie_rate)
-        p1_eat_ratios.append(p1_eat_ratio)
-        p2_eat_ratios.append(p2_eat_ratio)
-
-        # --- 每場結束就寫進 CSV ---
-        if writer:
-            writer.writerow([i + 1, p1_rate, p2_rate, tie_rate, p1_eat_ratio, p2_eat_ratio])
-            f.flush()  # 立即寫入硬碟，避免中途掛掉資料消失
-
-    # --- 關閉 CSV 檔案 ---
-    if f:
-        f.close()
-        print(f"📊 對戰數據已即時存到 {fname}")
-    # --- 畫圖 ---
-    fig1, ax1 = plt.subplots(figsize=(8, 5))
-    ax1.plot(rounds, p1_rates, label=f"Player1 勝率 ({player1.agent})", marker="o")
-    ax1.plot(rounds, p2_rates, label=f"Player2 勝率 ({player2.agent})", marker="s")
-    ax1.plot(rounds, tie_rates, label="平局率", linestyle="--")
-    ax1.set_xlabel("對戰場數")
-    ax1.set_ylabel(f"累積勝率 ({playouts} playout)")
-    ax1.set_title(f"{player1.agent} vs {player2.agent}")
-    ax1.grid(True)
-    ax1.legend()
-    plt.tight_layout()
-    plt.show()
-
-    # 下面：吃子比例長條圖
-    fig2, ax2 = plt.subplots(figsize=(8, 5))
-    width = 0.4  # 長條寬度
-
-    ax2.bar([r - width / 2 for r in rounds], p1_eat_ratios, width=width, label=f"Player1 ({player1.agent})")
-    ax2.bar([r + width / 2 for r in rounds], p2_eat_ratios, width=width, label=f"Player2 ({player2.agent})")
-
-    ax2.set_xlabel("對戰場數")
-    ax2.set_ylabel("累積吃子比例")
-    ax2.set_title("吃子比例比較")
-    ax2.set_xticks(rounds[::max(1, len(rounds) // 10)])  # 只顯示部分 xtick 避免擠爆
-    ax2.set_xticklabels(rounds[::max(1, len(rounds) // 10)])
-    ax2.set_ylim(0, 1.0)  # 吃子比例必在 [0,1]
-    ax2.yaxis.set_major_locator(MaxNLocator(nbins=6, prune="upper"))
-    ax2.grid(axis="y", linestyle="--", alpha=0.7)
-    ax2.legend()
-    plt.tight_layout()
-    plt.show()
-
-    # --- 存 CSV ---
-    if save_csv:
-        os.makedirs(csv_dir, exist_ok=True)
-        fname = os.path.join(csv_dir, f"battle_{player1.agent}_vs_{player2.agent}.csv")
-        with open(fname, "w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow(["Round", "P1_rate", "P2_rate", "Tie_rate", "P1_eat_ratio", "P2_eat_ratio"])
-            for r, p1r, p2r, tr, p1e, p2e in zip(rounds, p1_rates, p2_rates, tie_rates, p1_eat_ratios, p2_eat_ratios):
-                writer.writerow([r, p1r, p2r, tr, p1e, p2e])
-        print(f"📊 對戰數據已儲存到 {fname}")
-
-    return results
+        # 跑 battle_summary
+        results = battle_summary(current_player, opponents, board, playouts=1000,
+                                 n_games=n_games, save_csv=True, csv_file=csv_file)
+        return results
 
 def battle_summary(player1, opponents, board, playouts, n_games=100, save_csv=True, csv_file="battle_summary.csv"):
     game = Game(board)

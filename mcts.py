@@ -141,34 +141,6 @@ class MCTS(object):
                      for act, node in self._root._children.items()]
         acts, visits = zip(*act_visits)
         act_probs = softmax(1.0 / temp * np.log(np.array(visits) + 1e-10))
-        '''
-        if plot_probs:
-            eat_ids = []
-            for a in acts:
-                y1, x1, y2, x2 = map(int, move_id2move_action[a])
-                target = state.state_deque[-1][y2][x2]
-                if target not in ('一一', '暗棋') and state.current_player_color not in target:
-                    eat_ids.append(a)
-
-            x = np.arange(len(acts))
-            colors = ['red' if a in eat_ids else 'blue' for a in acts]
-            labels = [f"{y1},{x1}→{y2},{x2}" for a in acts
-                      for y1, x1, y2, x2 in [move_id2move_action[a]]]
-
-            plt.figure(figsize=(10, 4))
-            bars = plt.bar(x, act_probs, color=colors)
-
-            # 標出訪問次數
-            for bar, v in zip(bars, visits):
-                plt.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
-                         f"{v}", ha='center', va='bottom', fontsize=7, rotation=90)
-
-            plt.xticks(x, labels, rotation=90, fontsize=6)
-            plt.xlabel("Available Moves")
-            plt.ylabel("Probability")
-            plt.title("Move Probability (Raw MCTS Output) - visits shown")
-            plt.tight_layout()
-            plt.show()'''
         return acts, act_probs
 
     def update_with_move(self, last_move):
@@ -205,6 +177,7 @@ class MCTSPlayer(object):
         self.mcts = MCTS(policy_value_function, c_puct, n_playout)
         self._is_selfplay = is_selfplay
         self.agent = "AI"
+        self.playout_count = 0
 
     def set_player_ind(self, p):
         self.player = p
@@ -212,6 +185,7 @@ class MCTSPlayer(object):
     # 重置搜索树
     def reset_player(self):
         self.mcts.update_with_move(-1)
+        self.playout_count = 0
 
     def __str__(self):
         return 'MCTS {}'.format(self.player)
@@ -223,8 +197,6 @@ class MCTSPlayer(object):
 
         acts, probs = self.mcts.get_move_probs(board, temp)
         eat_ids = []
-        move_ids = []
-        #Game(board).graphic(board)
         for a in acts:
             y1, x1, y2, x2 = map(int, move_id2move_action[a])
             start = board.state_deque[-1][y1][x1]
@@ -242,19 +214,20 @@ class MCTSPlayer(object):
         #if eat_ids:
            #plot_move_probs(acts, probs, eat_ids, "Move Probability (After Amplification)")
         if self._is_selfplay:
-            # 添加Dirichlet Noise进行探索（自我对弈需要）
+            # 前 30 步用高溫度（探索更多），之後降溫
+            self.playout_count += 1
+            current_temp = 1.0 if self.playout_count <= 30 else 1e-3
 
             move = np.random.choice(
                 acts,
                 p=0.8 * probs + 0.2 * np.random.dirichlet(CONFIG['dirichlet'] * np.ones(len(probs)))
-            )
-            # 更新根节点并重用搜索树
+            ) if current_temp == 1.0 else np.random.choice(acts, p=probs)
+
             self.mcts.update_with_move(move)
         else:
-            # 使用默认的temp=1e-3，它几乎相当于选择具有最高概率的移动
             move = np.random.choice(acts, p=probs)
-            # 重置根节点
             self.mcts.update_with_move(-1)
+
         if return_prob:
             return move, move_probs
         else:
