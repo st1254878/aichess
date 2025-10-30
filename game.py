@@ -114,7 +114,7 @@ def state_list2state_array(state_list):
     return _state_array
 
 
-# 拿到所有合法走子的集合，2086长度，也就是神经网络预测的走子概率向量的长度
+# 拿到所有合法走子的集合，384长度，也就是神经网络预测的走子概率向量的长度
 # 第一个字典：move_id到move_action
 # 第二个字典：move_action到move_id
 # 例如：move_id:0 --> move_action:'0010'
@@ -332,6 +332,9 @@ def get_greedy_move(state_deque, current_player_color):
 class Board(object):
 
     def __init__(self):
+        self.last_move = None
+        self._remain_backup = None
+        self._reveal_backup = None
         self.remain_pieces = []
         self.first_move = True
         self.state_list = copy.deepcopy(state_list_init)
@@ -350,10 +353,8 @@ class Board(object):
             self.state_list = copy.deepcopy(non_covered_state_list_init)
             self.state_deque = copy.deepcopy(non_covered_state_deque_init)
         else:
-            red_pieces = ['红帅'] + ['红士'] * 2 + ['红象'] * 2 + ['红马'] * 2 + ['红车'] * 2 + ['红炮'] * 2 + [
-                '红兵'] * 5
-            black_pieces = ['黑帅'] + ['黑士'] * 2 + ['黑象'] * 2 + ['黑马'] * 2 + ['黑车'] * 2 + ['黑炮'] * 2 + [
-                '黑兵'] * 5
+            red_pieces = ['红帅'] + ['红士'] * 2 + ['红象'] * 2 + ['红马'] * 2 + ['红车'] * 2 + ['红炮'] * 2 + ['红兵'] * 5
+            black_pieces = ['黑帅'] + ['黑士'] * 2 + ['黑象'] * 2 + ['黑马'] * 2 + ['黑车'] * 2 + ['黑炮'] * 2 + ['黑兵'] * 5
             covered_pieces = red_pieces + black_pieces
             random.shuffle(covered_pieces)
             self.remain_pieces = covered_pieces
@@ -381,6 +382,104 @@ class Board(object):
         self.action_count = 0   # 游戏动作计数器
         self.winner = None
 
+    def get_dark_positions(self):
+        """
+        回傳目前所有暗棋(未翻開)的位置列表。
+        每個位置以 (row, col) 表示，例如 [(0, 3), (2, 5), ...]
+        """
+        dark_positions = []
+        current_state = self.state_deque[-1]
+
+        for y in range(4):  # 棋盤高
+            for x in range(8):  # 棋盤寬
+                if current_state[y][x] == '暗棋':
+                    dark_positions.append((y, x))
+
+        return dark_positions
+
+    def force_reveal(self, pos, piece):
+        """
+        強制將某個暗棋位置翻成指定棋子（用於模擬翻棋期望）。
+        不會隨機，直接覆蓋，並暫存狀態以供還原。
+        """
+        y, x = pos
+        r, c = pos
+        action = f"{r}{c}{r}{c}"
+        self.last_move = action
+        #print(piece,y,x,sep=" ")
+        self._reveal_backup = copy.deepcopy(self.state_deque[-1])
+        self._remain_backup = copy.deepcopy(self.remain_pieces)
+
+        state_list = copy.deepcopy(self.state_deque[-1])
+        state_list[y][x] = piece
+        self.state_deque.append(state_list)
+        if piece in self.remain_pieces:
+            self.remain_pieces.remove(piece)
+
+
+    def get_piece_reveal_plane(self):
+        """
+        回傳 shape=(32, 4, 8) 的平面：
+        index 0~15 代表紅方各棋種，16~31 代表黑方。
+        若該棋種仍有 n 隻未翻開，對應後 n 個 index 會填 1（代表「仍可翻出」）。
+        """
+        plane = np.zeros((32, 4, 8), dtype=np.float32)
+        piece_index_map = {
+            '红帅': [0],
+            '红士': [1, 2],
+            '红象': [3, 4],
+            '红车': [5, 6],
+            '红马': [7, 8],
+            '红炮': [9, 10],
+            '红兵': [11, 12, 13, 14, 15],
+            '黑帅': [16],
+            '黑士': [17, 18],
+            '黑象': [19, 20],
+            '黑车': [21, 22],
+            '黑马': [23, 24],
+            '黑炮': [25, 26],
+            '黑兵': [27, 28, 29, 30, 31],
+        }
+
+        # 統計 remain_pieces（尚未翻出）中每種棋的數量
+        remain_counts = {key: 0 for key in piece_index_map}
+        for piece in self.remain_pieces:
+            if piece in remain_counts:
+                remain_counts[piece] += 1
+
+        # 依照剩餘數量填 1（從後面往前填）
+        for piece, count in remain_counts.items():
+            idxs = piece_index_map[piece]
+            for i in range(len(idxs) - count, len(idxs)):  # 填後面 count 個
+                plane[idxs[i]][:, :] = 1.0
+
+        return plane
+
+    def get_history_planes(self):
+        """
+        將最近 4 步棋盤（含當前）轉成 shape=(7*4, 4, 8) 的張量。
+        每一步棋都經過 string2array 編碼，並排列成通道方向。
+        """
+        history_planes = []
+
+        # 取最近 4 步，若不足 4 步則前面補空盤
+        pad_count = 4 - len(self.state_deque)
+        empty_board = np.full((4, 8), '一一', dtype=object)
+
+        for _ in range(pad_count):
+            state_array = state_list2state_array(empty_board).transpose([2, 0, 1])  # [7,4,8]
+            history_planes.append(state_array)
+
+        # 把 deque 中的盤面加進來
+        for state_list in self.state_deque:
+            state_array = state_list2state_array(state_list).transpose([2, 0, 1])  # [7,4,8]
+            history_planes.append(state_array)
+
+        # 沿 channel (axis=0) 疊起來
+        history_planes = np.concatenate(history_planes, axis=0)  # shape=(7*4,4,8)
+
+        return history_planes
+
     @property
     # 获的当前盘面的所有合法走子集合
     def availables(self):
@@ -391,24 +490,30 @@ class Board(object):
 
     # 从当前玩家的视角返回棋盘状态，current_state_array: [9, 10, 9]  CHW
     def current_state(self):
-        _current_state = np.zeros([9, 4, 8])
-        # 使用9个平面来表示棋盘状态
-        # 0-6个平面表示棋子位置，1代表红方棋子，-1代表黑方棋子, 队列最后一个盘面
-        # 第7个平面表示对手player最近一步的落子位置，走子之前的位置为-1，走子之后的位置为1，其余全部是0
-        # 第8个平面表示的是当前player是不是先手player，如果是先手player则整个平面全部为1，否则全部为0
-        _current_state[:7] = state_list2state_array(self.state_deque[-1]).transpose([2, 0, 1])  # [7, 4, 8]
-        if self.game_start:
-            # 解构self.last_move
-            move = move_id2move_action[self.last_move]
-            start_position = int(move[0]), int(move[1])
-            end_position = int(move[2]), int(move[3])
-            _current_state[7][start_position[0]][start_position[1]] = -1
-            _current_state[7][end_position[0]][end_position[1]] = 1
-        # 指出当前是哪个玩家走子
-        if self.current_player_id == self.start_player:
-            _current_state[8][:, :] = 1.0
-        else:
-            _current_state[8][:, :] = 0.0
+        """
+        回傳目前 state 的完整特徵：
+        - 前 28 層：最近 4 步棋盤，每步 7 個平面（紅黑棋子、暗棋）
+        - 第 28 層：是否為先手玩家（全 1 or 全 0）
+        - 第 29 層：目前視角顏色（紅方為 1，黑方為 0）
+        - 後 32 層：翻棋資訊（每種棋種被翻開數量）
+        共計 28 + 1 + 1 + 32 = 62 個 channel，shape = (62, 4, 8)
+        """
+        # Step 1: 最近 4 步棋盤（含當前）
+        history_planes = self.get_history_planes()  # shape = [28, 4, 8]
+
+        # Step 2: 先手玩家平面
+        first_player_plane = np.ones((1, 4, 8), dtype=np.float32) if self.current_player_id == self.start_player \
+            else np.zeros((1, 4, 8), dtype=np.float32)
+
+        # Step 3: 當前顏色視角平面
+        color_plane = np.ones((1, 4, 8), dtype=np.float32) if self.current_player_color == '红' \
+            else np.zeros((1, 4, 8), dtype=np.float32)
+
+        # Step 4: 翻棋狀態平面
+        reveal_plane = self.get_piece_reveal_plane()  # shape = [32, 4, 8]
+
+        # Step 5: 拼成最終 state
+        _current_state = np.concatenate([history_planes, first_player_plane, color_plane, reveal_plane], axis=0)
 
         return _current_state
 
@@ -432,7 +537,6 @@ class Board(object):
                     random.shuffle(self.remain_pieces)
             else:
                 random.shuffle(self.remain_pieces)
-
             state_list[end_y][end_x] = self.remain_pieces[0]
             self.remain_pieces.pop(0)
         elif state_list[end_y][end_x] != '一一':
@@ -461,7 +565,7 @@ class Board(object):
         """一共有三种状态，红方胜，黑方胜，平局"""
         if self.winner is not None:
             return True, self.winner
-        elif self.kill_action >= CONFIG['kill_action']:  # 平局先手判负
+        elif self.kill_action >= CONFIG['kill_action']:  # 平局盤面分數擇優
             red_strength = self.calc_side_strength('红')
             black_strength = self.calc_side_strength('黑')
             if red_strength > black_strength:
@@ -511,7 +615,6 @@ class Game(object):
 
     def __init__(self, board):
         self.board = board
-        self.model_for_value = PolicyValueNet(model_file="current_policy.pth")
     # 可视化
     def graphic(self, board):
         print_board(state_list2state_array(board.state_deque[-1]))
@@ -545,10 +648,6 @@ class Game(object):
 
             if is_shown:
                 self.graphic(self.board)
-                state = np.expand_dims(state, 0)  # 增加 batch 維度
-                state = state.astype('float32')
-                _, v = self.model_for_value.policy_value(state)
-                print(f"Predicted V for Player {current_player}: {v}")
                 red_strength = self.board.calc_side_strength('红')
                 black_strength = self.board.calc_side_strength('黑')
                 if red_strength != 0 and black_strength != 0:
@@ -563,7 +662,7 @@ class Game(object):
                 return winner
 
     # 使用蒙特卡洛树搜索开始自我对弈，存储游戏状态（状态，蒙特卡洛落子概率，胜负手）三元组用于神经网络训练
-    def start_self_play(self, player, is_shown=False, temp=1e-3):
+    def start_self_play(self, player, is_shown=False, temp=1):
         self.board.init_board()     # 初始化棋盘, start_player=1
         p1, p2 = 1, 2
         states, mcts_probs, current_players = [], [], []
@@ -575,17 +674,11 @@ class Game(object):
             _count += 1
             if is_shown:
                 self.graphic(self.board)
-            eat_move_list, fallback_movelist = self.board.greedys()
-            if _count % 20 == 0:
-                start_time = time.time()
-                move, move_probs = player.get_action(self.board,
-                                                     temp=temp,
-                                                     return_prob=1)
-                print('走一步要花: ', time.time() - start_time)
-            else:
-                move, move_probs = player.get_action(self.board,
-                                                     temp=temp,
-                                                     return_prob=1)
+            move, move_probs = player.get_action(
+                self.board,
+                temp=temp,
+                return_prob=True
+            )
             states.append(self.board.current_state())
             mcts_probs.append(move_probs)
             current_players.append(self.board.current_player_id)
@@ -638,7 +731,17 @@ class Game(object):
 
 if __name__ == '__main__':
     board = Board()
+    game = Game(board)
     board.init_board()
+    move = board.availables[0]
+    board.do_move(move)
+    move = board.availables[0]
+    board.do_move(move)
+    move = board.availables[0]
+    board.do_move(move)
+    game.graphic(board)
+    board.undo_move()
+    game.graphic(board)
 
 
 

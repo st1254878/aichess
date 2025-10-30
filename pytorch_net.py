@@ -1,169 +1,276 @@
-"""策略价值网络"""
-
-
 import torch
 import torch.nn as nn
-import numpy as np
 import torch.nn.functional as F
-from config import CONFIG
-from torch.cuda.amp import autocast
+import numpy as np
 
 
-# 搭建残差块
+# ==================== SE Block（針對 62 通道優化）====================
+class SEBlock(nn.Module):
+    """針對暗棋 62 通道優化的 SE Block"""
+
+    def __init__(self, channels=62, reduction=8):
+        super().__init__()
+        # 確保降維後至少有 4 個神經元
+        reduced_channels = max(channels // reduction, 4)
+
+        self.fc1 = nn.Linear(channels, reduced_channels)
+        self.fc2 = nn.Linear(reduced_channels, channels)
+
+    def forward(self, x):
+        b, c, h, w = x.size()
+
+        # Squeeze: 全局平均池化
+        y = F.adaptive_avg_pool2d(x, 1).view(b, c)
+
+        # Excitation: FC -> ReLU -> FC -> Sigmoid
+        y = F.relu(self.fc1(y))
+        y = torch.sigmoid(self.fc2(y))
+
+        # Scale: 重新加權
+        y = y.view(b, c, 1, 1)
+        return x * y.expand_as(x)
+
+
+# ==================== 改進的殘差塊 ====================
 class ResBlock(nn.Module):
-
-    def __init__(self, num_filters=256):
+    def __init__(self, num_filters=256, use_se=True):
         super().__init__()
-        self.conv1 = nn.Conv2d(in_channels=num_filters, out_channels=num_filters, kernel_size=(3, 3), stride=(1, 1), padding=1)
-        self.conv1_bn = nn.BatchNorm2d(num_filters, )
-        self.conv1_act = nn.ReLU()
-        self.conv2 = nn.Conv2d(in_channels=num_filters, out_channels=num_filters, kernel_size=(3, 3), stride=(1, 1), padding=1)
-        self.conv2_bn = nn.BatchNorm2d(num_filters, )
-        self.conv2_act = nn.ReLU()
+        self.conv1 = nn.Conv2d(num_filters, num_filters, 3, 1, 1)
+        self.bn1 = nn.BatchNorm2d(num_filters)
+        self.conv2 = nn.Conv2d(num_filters, num_filters, 3, 1, 1)
+        self.bn2 = nn.BatchNorm2d(num_filters)
+
+        self.use_se = use_se
+        if use_se:
+            # 這裡的 SE 是作用在殘差塊的輸出上（256 通道）
+            self.se = SEBlock(num_filters, reduction=16)
 
     def forward(self, x):
-        y = self.conv1(x)
-        y = self.conv1_bn(y)
-        y = self.conv1_act(y)
-        y = self.conv2(y)
-        y = self.conv2_bn(y)
-        y = x + y
-        return self.conv2_act(y)
+        y = F.relu(self.bn1(self.conv1(x)))
+        y = self.bn2(self.conv2(y))
+
+        if self.use_se:
+            y = self.se(y)
+
+        return F.relu(x + y)
 
 
-# 搭建骨干网络，输入：N, 9, 10, 9 --> N, C, H, W
-class Net(nn.Module):
-
-    def __init__(self, num_channels=256, num_res_blocks=7):
+# ==================== 針對你的 State 設計的完整網路 ====================
+class DarkChessNet(nn.Module):
+    def __init__(self, num_channels=256, num_res_blocks=10, num_actions=384):
         super().__init__()
-        # 全局特征
-        # self.global_conv = nn.Conv2D(in_channels=9, out_channels=512, kernel_size=(10, 9))
-        # self.global_bn = nn.BatchNorm2D(512)
-        # 初始化特征
-        self.conv_block = nn.Conv2d(in_channels=9, out_channels=num_channels, kernel_size=(3, 3), stride=(1, 1), padding=1)
-        self.conv_block_bn = nn.BatchNorm2d(256)
-        self.conv_block_act = nn.ReLU()
-        # 残差块抽取特征
-        self.res_blocks = nn.ModuleList([ResBlock(num_filters=num_channels) for _ in range(num_res_blocks)])
-        # 策略头
-        self.policy_conv = nn.Conv2d(in_channels=num_channels, out_channels=16, kernel_size=(1, 1), stride=(1, 1))
-        self.policy_bn = nn.BatchNorm2d(16)
-        self.policy_act = nn.ReLU()
-        self.policy_fc = nn.Linear(16 * 4 * 8, 2086)
-        # 价值头
-        self.value_conv = nn.Conv2d(in_channels=num_channels, out_channels=8, kernel_size=(1, 1), stride=(1, 1))
-        self.value_bn = nn.BatchNorm2d(8)
-        self.value_act1 = nn.ReLU()
-        self.value_fc1 = nn.Linear(8 * 4 * 8, 256)
-        self.value_act2 = nn.ReLU()
-        self.value_fc2 = nn.Linear(256, 1)
 
-    # 定义前向传播
+        # ⭐ 輸入：[B, 62, 4, 8] - 來自你的 Board.current_state()
+        self.input_channels = 62
+
+        # 第一層卷積：62 -> 256 通道
+        self.conv_block = nn.Conv2d(
+            in_channels=self.input_channels,
+            out_channels=num_channels,
+            kernel_size=3,
+            stride=1,
+            padding=1
+        )
+        self.conv_block_bn = nn.BatchNorm2d(num_channels)
+
+        # ⭐ 可選：在輸入層後加一個 SE Block（針對 62 通道）
+        self.input_se = SEBlock(self.input_channels, reduction=8)
+
+        # 殘差塊（帶 SE）
+        self.res_blocks = nn.ModuleList([
+            ResBlock(num_channels, use_se=True)
+            for _ in range(num_res_blocks)
+        ])
+
+        # --- 策略頭 ---
+        self.policy_conv = nn.Conv2d(num_channels, 32, kernel_size=1)
+        self.policy_bn = nn.BatchNorm2d(32)
+        self.policy_fc1 = nn.Linear(32 * 4 * 8, 512)
+        self.policy_fc2 = nn.Linear(512, num_actions)
+        self.policy_dropout = nn.Dropout(0.3)
+
+        # --- 價值頭 ---
+        self.value_conv = nn.Conv2d(num_channels, 16, kernel_size=1)
+        self.value_bn = nn.BatchNorm2d(16)
+        self.value_fc1 = nn.Linear(16 * 4 * 8, 512)
+        self.value_fc2 = nn.Linear(512, 256)
+        self.value_fc3 = nn.Linear(256, 1)
+        self.value_dropout = nn.Dropout(0.3)
+
     def forward(self, x):
-        # 公共头
-        x = self.conv_block(x)
-        x = self.conv_block_bn(x)
-        x = self.conv_block_act(x)
-        for layer in self.res_blocks:
-            x = layer(x)
-        # 策略头
-        policy = self.policy_conv(x)
-        policy = self.policy_bn(policy)
-        policy = self.policy_act(policy)
-        policy = torch.reshape(policy, [-1, 16 * 4 * 8])
-        policy = self.policy_fc(policy)
-        policy = F.log_softmax(policy,dim=1)
-        # 价值头
-        value = self.value_conv(x)
-        value = self.value_bn(value)
-        value = self.value_act1(value)
-        value = torch.reshape(value, [-1, 8 * 4 * 8])
-        value = self.value_fc1(value)
-        value = self.value_act1(value)
-        value = self.value_fc2(value)
-        value = torch.tanh(value)
+        # x shape: [B, 62, 4, 8]
 
-        return policy, value
+        # ⭐ 可選：先對輸入的 62 通道做 SE
+        x = self.input_se(x)
+
+        # 第一層卷積
+        x = F.relu(self.conv_block_bn(self.conv_block(x)))
+        # x shape: [B, 256, 4, 8]
+
+        # 殘差塊
+        for res in self.res_blocks:
+            x = res(x)
+
+        # --- 策略頭 ---
+        p = F.relu(self.policy_bn(self.policy_conv(x)))
+        p = p.view(-1, 32 * 4 * 8)
+        p = F.relu(self.policy_fc1(p))
+        p = self.policy_dropout(p)
+        p = self.policy_fc2(p)
+        p = F.log_softmax(p, dim=1)
+
+        # --- 價值頭 ---
+        v = F.relu(self.value_bn(self.value_conv(x)))
+        v = v.view(-1, 16 * 4 * 8)
+        v = F.relu(self.value_fc1(v))
+        v = self.value_dropout(v)
+        v = F.relu(self.value_fc2(v))
+        v = torch.tanh(self.value_fc3(v))
+
+        return p, v
 
 
-# 策略值网络，用来进行模型的训练
+# ==================== 與你的 Board 整合測試 ====================
 class PolicyValueNet:
-
-    def __init__(self, model_file=None, use_gpu=True, device = 'cuda'):
+    def __init__(self, model_file=None, use_gpu=True, device='cuda'):
         self.use_gpu = use_gpu
-        self.l2_const = 2e-3    # l2 正则化
         self.device = device
-        self.policy_value_net = Net().to(self.device)
-        self.optimizer = torch.optim.Adam(params=self.policy_value_net.parameters(), lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=self.l2_const)
-        if model_file:
-            self.policy_value_net.load_state_dict(torch.load(model_file))  # 加载模型参数
+        self.l2_const = 1e-4
 
-    # 输入一个批次的状态，输出一个批次的动作概率和状态价值
+        # 使用新的網路
+        self.policy_value_net = DarkChessNet(
+            num_channels=256,
+            num_res_blocks=10,
+            num_actions=384
+        ).to(self.device)
+
+        self.optimizer = torch.optim.AdamW(
+            self.policy_value_net.parameters(),
+            lr=2e-3,
+            weight_decay=self.l2_const
+        )
+
+        if model_file:
+            self.policy_value_net.load_state_dict(torch.load(model_file))
+
     def policy_value(self, state_batch):
         self.policy_value_net.eval()
-        state_batch = torch.tensor(state_batch).to(self.device)
-        log_act_probs, value = self.policy_value_net(state_batch)
-        log_act_probs, value = log_act_probs.cpu(), value.cpu()
-        act_probs = np.exp(log_act_probs.detach().numpy())
-        return act_probs, value.detach().numpy()
+        state_batch = torch.tensor(state_batch, dtype=torch.float32).to(self.device)
+        with torch.no_grad():
+            log_act_probs, value = self.policy_value_net(state_batch)
+        act_probs = torch.exp(log_act_probs).cpu().numpy()
+        return act_probs, value.cpu().numpy()
 
-    # 输入棋盘，返回每个合法动作的（动作，概率）元组列表，以及棋盘状态的分数
     def policy_value_fn(self, board):
+        """與你的 Board 類整合"""
         self.policy_value_net.eval()
-        # 获取合法动作列表
-        legal_positions = board.availables
-        current_state = np.ascontiguousarray(board.current_state().reshape(-1, 9, 4, 8)).astype('float16')
+
+        # ⭐ 使用你的 Board.current_state() 方法
+        # 這會返回 shape=(62, 4, 8) 的 numpy array
+        current_state = board.current_state()
+
+        # 轉換成 PyTorch tensor
+        current_state = np.ascontiguousarray(
+            current_state.reshape(1, 62, 4, 8)
+        ).astype('float32')
         current_state = torch.as_tensor(current_state).to(self.device)
-        # 使用神经网络进行预测
-        with torch.amp.autocast("cuda"): #半精度fp16
+
+        # 前向傳播
+        with torch.amp.autocast("cuda"):
             log_act_probs, value = self.policy_value_net(current_state)
-        log_act_probs, value = log_act_probs.cpu() , value.cpu()
-        act_probs = np.exp(log_act_probs.numpy().flatten()) if CONFIG['use_frame'] == 'paddle' else np.exp(log_act_probs.detach().numpy().astype('float16').flatten())
-        # 只取出合法动作
+
+        # 轉回 CPU 並處理合法動作
+        log_act_probs = log_act_probs.cpu()
+        value = value.cpu()
+
+        act_probs = np.exp(log_act_probs.detach().numpy().flatten())
+        legal_positions = board.availables
         act_probs = zip(legal_positions, act_probs[legal_positions])
-        # 返回动作概率，以及状态价值
+
         return act_probs, value.detach().numpy()
 
-    # 保存模型
-    def save_model(self, model_file):
-        torch.save(self.policy_value_net.state_dict(), model_file)
-
-    # 执行一步训练
-    def train_step(self, state_batch, mcts_probs, winner_batch, lr=0.002):
+    def train_step(self, state_batch, mcts_probs, winner_batch, lr=None):
+        """訓練一步"""
         self.policy_value_net.train()
-        # 包装变量
-        state_batch = torch.tensor(state_batch).to(self.device)
-        mcts_probs = torch.tensor(mcts_probs).to(self.device)
-        winner_batch = torch.tensor(winner_batch).to(self.device)
-        # 清零梯度
+
+        # state_batch shape: [B, 62, 4, 8]
+        state_batch = torch.tensor(state_batch, dtype=torch.float32).to(self.device)
+        mcts_probs = torch.tensor(mcts_probs, dtype=torch.float32).to(self.device)
+        winner_batch = torch.tensor(winner_batch, dtype=torch.float32).to(self.device)
+
         self.optimizer.zero_grad()
-        # 设置学习率
-        for params in self.optimizer.param_groups:
-            # 遍历Optimizer中的每一组参数，将该组参数的学习率 * 0.9
-            params['lr'] = lr
-        # 前向运算
+
+        if lr is not None:
+            for params in self.optimizer.param_groups:
+                params['lr'] = lr
+
         log_act_probs, value = self.policy_value_net(state_batch)
-        value = torch.reshape(value, shape=[-1])
-        # 价值损失
-        value_loss = F.mse_loss(input=value, target=winner_batch)
-        # 策略损失
-        policy_loss = -torch.mean(torch.sum(mcts_probs * log_act_probs, dim=1))  # 希望两个向量方向越一致越好
-        # 总的损失，注意l2惩罚已经包含在优化器内部
+        value = value.view(-1)
+
+        # 損失函數
+        value_loss = F.mse_loss(value, winner_batch)
+        policy_loss = -torch.mean(torch.sum(mcts_probs * log_act_probs, dim=1))
         loss = value_loss + policy_loss
-        # 反向传播及优化
+
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.policy_value_net.parameters(), max_norm=1.0)
         self.optimizer.step()
-        # 计算策略的熵，仅用于评估模型
+
         with torch.no_grad():
             entropy = -torch.mean(
                 torch.sum(torch.exp(log_act_probs) * log_act_probs, dim=1)
             )
-        return loss.detach().cpu().numpy(), entropy.detach().cpu().numpy()
+
+        return loss.item(), entropy.item()
+
+    def save_model(self, model_file):
+        torch.save(self.policy_value_net.state_dict(), model_file)
 
 
+# ==================== 測試與你的 State 相容性 ====================
 if __name__ == '__main__':
-    net = Net().to('cuda')
-    test_data = torch.ones([8, 9, 4, 8]).to('cuda')
-    x_act, x_val = net(test_data)
-    print(x_act.shape)  # 8, 2086
-    print(x_val.shape)  # 8, 1
+    print("=" * 70)
+    print("測試與暗棋 Board 的整合")
+    print("=" * 70)
+
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    print(f"使用設備: {device}")
+
+    # 創建網路
+    net = DarkChessNet(num_channels=256, num_res_blocks=10).to(device)
+
+    # 模擬你的 Board.current_state() 輸出
+    # shape = (62, 4, 8)
+    test_state = np.random.randn(62, 4, 8).astype('float32')
+
+    # 轉換成 batch 格式
+    test_batch = torch.tensor(test_state).unsqueeze(0).to(device)
+    print(f"\n輸入 shape: {test_batch.shape}")  # [1, 62, 4, 8]
+
+    # 前向傳播
+    with torch.no_grad():
+        log_probs, value = net(test_batch)
+
+    print(f"策略輸出 shape: {log_probs.shape}")  # [1, 384]
+    print(f"價值輸出 shape: {value.shape}")  # [1, 1]
+
+    # 參數統計
+    total_params = sum(p.numel() for p in net.parameters())
+    print(f"\n總參數量: {total_params:,}")
+
+    # SE Block 參數
+    se_params = sum(
+        p.numel() for n, p in net.named_parameters()
+        if 'se' in n or 'input_se' in n
+    )
+    print(f"SE Block 參數: {se_params:,} ({se_params / total_params * 100:.2f}%)")
+
+    print("\n" + "=" * 70)
+    print("✅ 測試通過！網路可以正常處理你的 State 格式")
+    print("=" * 70)
+
+    # 顯示 SE Block 配置
+    print("\nSE Block 配置:")
+    print(f"  - 輸入層 SE: 62 通道，降維比例 r=8 → 8 神經元")
+    print(f"  - 殘差塊 SE: 256 通道，降維比例 r=16 → 16 神經元")
+    print(f"  - 總共 {10 + 1} 個 SE Block (10 個 ResBlock + 1 個輸入層)")
