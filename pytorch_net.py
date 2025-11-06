@@ -132,9 +132,15 @@ class DarkChessNet(nn.Module):
 
 # ==================== 與你的 Board 整合測試 ====================
 class PolicyValueNet:
-    def __init__(self, model_file=None, use_gpu=True, device='cuda'):
-        self.use_gpu = use_gpu
-        self.device = device
+    def __init__(self, model_file=None, use_gpu=True, device=None):
+        # 自動判斷：如果沒有 GPU，會改用 CPU
+        if device is None:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+
+        self.use_gpu = use_gpu and (device == "cuda" and torch.cuda.is_available())
+        self.device = torch.device(device)
+        print(f"[PolicyValueNet] Using device: {self.device}")
+
         self.l2_const = 1e-4
 
         # 使用新的網路
@@ -151,7 +157,10 @@ class PolicyValueNet:
         )
 
         if model_file:
-            self.policy_value_net.load_state_dict(torch.load(model_file))
+            # 加上 map_location，讓在 CPU 也能載入 GPU 訓練好的模型
+            self.policy_value_net.load_state_dict(
+                torch.load(model_file, map_location=self.device)
+            )
 
     def policy_value(self, state_batch):
         self.policy_value_net.eval()
