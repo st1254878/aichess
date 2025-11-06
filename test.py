@@ -1,3 +1,4 @@
+from game import move_id2move_action, move_action2move_id
 '''import os
 
 import pandas as pd
@@ -26,4 +27,4 @@ df = pd.concat([df, pd.DataFrame(new_data)], ignore_index=True)
 
 # 存回 CSV
 df.to_csv(file_path, index=False)'''
-
+print(move_id2move_action[257])
