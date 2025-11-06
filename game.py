@@ -455,6 +455,15 @@ class Board(object):
 
         return plane
 
+    def get_board_str(self):
+        """
+        回傳目前棋盤狀態，格式為 4x8 的 list[list[str]]，
+        每個元素都是棋子的字串名稱（如 '红车', '黑炮', '暗棋', '一一'）
+        """
+        if len(self.state_deque) == 0:
+            return [["一一" for _ in range(8)] for _ in range(4)]
+        return self.state_deque[-1]
+
     def get_history_planes(self):
         """
         將最近 4 步棋盤（含當前）轉成 shape=(7*4, 4, 8) 的張量。
@@ -703,7 +712,7 @@ class Game(object):
                 # 2. 吃子分數正規化 (副作用)
                 total_abs = sum(abs(r) for r in rewards) + 1e-8
                 scaled_rewards = np.array([r / total_abs for r in rewards])  # [-1, 1] 之間
-                alpha = 5  # 吃子影響比重 (可以調整 0.1 ~ 0.5)
+                alpha = 2  # 吃子影響比重 (可以調整 0.1 ~ 0.5)
 
                 # 3. 合併，勝負為主，吃子為輔
                 merged_rewards = winner_z + alpha * scaled_rewards

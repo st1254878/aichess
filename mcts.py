@@ -156,19 +156,6 @@ class MCTS(object):
     def __str__(self):
         return 'MCTS'
 
-def plot_move_probs(acts, probs, eat_ids, title):
-    x = np.arange(len(acts))
-    colors = ['red' if a in eat_ids else 'blue' for a in acts]
-    labels = [f"{y1},{x1}→{y2},{x2}" for a in acts for y1, x1, y2, x2 in [move_id2move_action[a]]]
-
-    plt.figure(figsize=(8, 3))
-    plt.bar(x, probs, color=colors)
-    plt.xticks(x, labels, rotation=90, fontsize=6)
-    plt.xlabel("Available Moves")
-    plt.ylabel("Probability")
-    plt.title(title)
-    plt.tight_layout()
-    plt.show()
 # 基于MCTS的AI玩家
 class MCTSPlayer(object):
 

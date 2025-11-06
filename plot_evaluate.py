@@ -17,7 +17,7 @@ elif CONFIG['use_frame'] == 'pytorch':
     #policy_value_net = PolicyValueNet(model_file=None)
 else:
     print('暂不支持您选择的框架')
-playout_num = 800
+playout_num = 400
 # 定義不同策略
 player_RL = MCTSPlayer(policy_value_net.policy_value_fn,
                                  c_puct=1,
@@ -27,15 +27,15 @@ random_agent = RandomPlayer()
 greedy_agent = GreedyPlayer()
 gpt_player = ChatGPTPlayer()
 opponents = {
-    #"Random": RandomPlayer(),
-    #"Greedy": GreedyPlayer(),
-    #"GPT": ChatGPTPlayer(),
+    "Random": RandomPlayer(),
+    "Greedy": GreedyPlayer(),
+    "GPT": ChatGPTPlayer(),
     "DarkCraftLite":MinimaxDarkChessPlayer()
 }
 # 跑 100 場 RL vs Random
 
-results = battle_summary(player_RL, opponents, board, playouts=400, n_games=100,csv_file="new_battle_summary.csv")
-#plot_battle_results_from_csv(csv_file="new_battle_summary.csv")
+#results = battle_summary(player_RL, opponents, board, playouts=400, n_games=100,csv_file="new_battle_summary.csv")
+plot_battle_results_from_csv(csv_file="new_battle_summary.csv")
 '''res= battle(greedy_agent, gpt_player, board, playout_num, n_games=100, is_shown=False, plot_interval=10)
 print(res)'''
 
