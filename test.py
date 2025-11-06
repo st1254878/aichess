@@ -1,4 +1,4 @@
-import os
+'''import os
 
 import pandas as pd
 
@@ -25,4 +25,5 @@ new_data = [
 df = pd.concat([df, pd.DataFrame(new_data)], ignore_index=True)
 
 # 存回 CSV
-df.to_csv(file_path, index=False)
+df.to_csv(file_path, index=False)'''
+
