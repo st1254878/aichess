@@ -156,19 +156,6 @@ class MCTS(object):
     def __str__(self):
         return 'MCTS'
 
-def plot_move_probs(acts, probs, eat_ids, title):
-    x = np.arange(len(acts))
-    colors = ['red' if a in eat_ids else 'blue' for a in acts]
-    labels = [f"{y1},{x1}→{y2},{x2}" for a in acts for y1, x1, y2, x2 in [move_id2move_action[a]]]
-
-    plt.figure(figsize=(8, 3))
-    plt.bar(x, probs, color=colors)
-    plt.xticks(x, labels, rotation=90, fontsize=6)
-    plt.xlabel("Available Moves")
-    plt.ylabel("Probability")
-    plt.title(title)
-    plt.tight_layout()
-    plt.show()
 # 基于MCTS的AI玩家
 class MCTSPlayer(object):
 
@@ -193,7 +180,7 @@ class MCTSPlayer(object):
     # 得到行动
     def get_action(self, board, temp=1e-3, return_prob=0):
         # 像alphaGo_Zero论文一样使用MCTS算法返回的pi向量
-        move_probs = np.zeros(2086)
+        move_probs = np.zeros(384)
 
         acts, probs = self.mcts.get_move_probs(board, temp)
         eat_ids = []
@@ -205,10 +192,11 @@ class MCTSPlayer(object):
                 #print(start,target,sep=" ")
                 eat_ids.append(a)
         if eat_ids:
-            #print(board.start_player)
+            # 啟發式增益：若當前有可吃子行動，人為放大其機率（AlphaZero 原始算法不含此步，此為項目優化）
+            # 這樣可以讓 AI 在訓練初期更具攻擊性
             eat_index = [i for i, a in enumerate(acts) if a in eat_ids]
             probs = probs.copy()
-            probs[eat_index] *= 30
+            probs[eat_index] *= 40
             probs /= probs.sum()
         move_probs[list(acts)] = probs
         #if eat_ids:

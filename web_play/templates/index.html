@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>暗棋阿拉法</title>
+  <link rel="stylesheet" href="static/style.css">
+  <style>
+    /* 簡單樣式保證棋盤顯示 */
+    .row { display:flex; }
+    .cell { width:64px; height:64px; box-sizing:border-box; display:flex; align-items:center; justify-content:center; }
+    .piece-image { max-width:90%; max-height:90%; pointer-events:none; }
+  </style>
+</head>
+<body>
+  <h1>暗棋阿拉法</h1>
+
+  <div id="setup">
+    <button onclick="startGame('first')">先手</button>
+    <button onclick="startGame('second')">後手</button>
+      <div id="thinking2" style="display:none; color:red; font-weight:bold; margin:10px;">
+        處理中...
+    </div>
+  </div>
+
+  <div id="game" style="display:none;">
+    <div id="turnIndicator" style="margin-bottom:8px;"></div>
+    <div id="board" style="display:inline-block; border:1px solid #333;"></div>
+    <div id="thinking" style="display:none; color:red; font-weight:bold; margin:10px;">
+        暗棋阿拉法 正在思考中...
+    </div>
+    <div style="margin-top: 10px;">
+      <button onclick="resetGame()">重新開始</button>
+        <h1>提示:翻棋需要在同一格點兩次</h1>
+    </div>
+  </div>
+
+  <script src="static/dark_chess_board.js"></script>
+</body>
+</html>

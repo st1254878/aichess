@@ -14,7 +14,7 @@ from config import CONFIG
 from game import Game, Board
 from mcts import MCTSPlayer
 from mcts_pure import MCTS_Pure
-
+from players import RandomPlayer
 if CONFIG['use_redis']:
     import my_redis, redis
     import zip_array
@@ -35,12 +35,12 @@ if CONFIG.get('no_dark_mode', True):
     REDIS_KEY = 'train_data_buffer_no_dark'
     REDIS_ITERS_KEY = 'iters_no_dark'
 else:
-    TRAIN_DATA_PATH = CONFIG.get('train_data_buffer_path', 'train_data_buffer.pth')
-    BEST_POLICY_PATH = 'best_policy.pth'
-    CURRENT_POLICY_PATH = 'current_policy.pth'
-    MODELS_DIR = 'models'
-    REDIS_KEY = 'train_data_buffer'
-    REDIS_ITERS_KEY = 'iters'
+    TRAIN_DATA_PATH = CONFIG.get('new_data_buffer_path', 'new_data_buffer.pth')
+    BEST_POLICY_PATH = 'new_best_policy.pth'
+    CURRENT_POLICY_PATH = 'new_current_policy.pth'
+    MODELS_DIR = 'new_models'
+    REDIS_KEY = 'new_train_data_buffer'
+    REDIS_ITERS_KEY = 'new_iters'
 
 os.makedirs(MODELS_DIR, exist_ok=True)
 
@@ -50,7 +50,7 @@ class TrainPipeline:
         latest_iter = 0
 
         # --- 自動找最新 checkpoint ---
-        ckpt_list = glob.glob(f"{MODELS_DIR}/current_policy_batch*.pth")
+        ckpt_list = glob.glob(f"{MODELS_DIR}/new_current_policy_batch*.pth")
         if ckpt_list:
             latest_ckpt = max(ckpt_list, key=os.path.getmtime)
             # 從檔名取出 batch 數字
@@ -58,7 +58,6 @@ class TrainPipeline:
             if match:
                 latest_iter = int(match.group(1))
             print(f"自動載入最新 checkpoint: {latest_ckpt} (batch {latest_iter})")
-
         # 若有指定 init_model 或找到最新 checkpoint，就用它
         model_file = init_model or latest_ckpt
         if model_file and os.path.exists(model_file):
@@ -109,8 +108,6 @@ class TrainPipeline:
         win_cnt = defaultdict(int)
         show = 0
         for i in range(n_games):
-            if n_games == 10:
-                show = 1
             if i % 2 == 0:
                 winner = self.game.start_play(player1, player2, start_player=1, is_shown=show)
                 if winner == 1:
@@ -123,7 +120,6 @@ class TrainPipeline:
                 winner = self.game.start_play(player2, player1, start_player=1, is_shown=show)
                 if winner == 1:
                     win_cnt["p2"] += 1
-                    print()
                 elif winner == 2:
                     win_cnt["p1"] += 1
                 else:
@@ -134,6 +130,7 @@ class TrainPipeline:
 
     def multi_evaluate(self, n_games=30):
         """同時測試 current vs best, current vs pureMCTS, best vs pureMCTS"""
+        print("開始測試")
         # 印出檔案時間
         for path, name in [(CURRENT_POLICY_PATH, "current_policy"), (BEST_POLICY_PATH, "best_policy")]:
             if os.path.exists(path):
@@ -144,7 +141,7 @@ class TrainPipeline:
                                     n_playout=100)
 
         # baseline: pure MCTS
-        pure_player = MCTS_Pure(self.pure_mcts_playout_num)
+        random_player = RandomPlayer()
 
         # best_policy
         best_player = None
@@ -165,12 +162,12 @@ class TrainPipeline:
             r, cnt = self._fight(current_player, best_player, n_games=n_games)
             results["current_vs_best"] = (r, cnt)
             print(f"[EVAL] current vs best → {cnt}, 勝率={r:.3f}")
-            results["current_vs_pure"] = (0, 0)
+            results["current_vs_random"] = (0, 0)
         else:
-            "目前不存在best_policy"
-            r, cnt = self._fight(current_player, pure_player, n_games=10)
-            results["current_vs_pure"] = (r, cnt)
-            print(f"[EVAL] current vs pureMCTS → {cnt}, 勝率={r:.3f}")
+            print("目前不存在best_policy")
+            r, cnt = self._fight(current_player, random_player, n_games=10)
+            results["current_vs_random"] = (r, cnt)
+            print(f"[EVAL] current vs random → {cnt}, 勝率={r:.3f}")
         # 2. current vs pureMCTS
 
 
@@ -324,10 +321,11 @@ class TrainPipeline:
                             except Exception as e:
                                 print("重新載入 best model 失敗:", e)
                                 self.best_policy_net = None
-
+                        else:
+                            print("不存在best model")
                         results = self.multi_evaluate()
                         # 取 current vs best 的勝率來決定是否更新 best_policy
-                        win_ratio = results.get("current_vs_best", results["current_vs_pure"])[0]
+                        win_ratio = results.get("current_vs_best", results["current_vs_random"])[0]
                         print(f"第 {i + 1} 批自對弈訓練，勝率：{win_ratio:.3f}")
 
                         # 儲存條件：勝率要超過閾值且比歷史最佳好
@@ -340,7 +338,7 @@ class TrainPipeline:
                             print("勝率不足 55% 或沒有超越歷史最佳，跳過保存 best_policy")
 
                         # checkpoint
-                        self.policy_value_net.save_model(f'{MODELS_DIR}/current_policy_batch{i + 1}.pth')
+                        self.policy_value_net.save_model(f'{MODELS_DIR}/new_current_policy_batch{i + 1}.pth')
         except KeyboardInterrupt:
             print('\n⛔️ 手動終止訓練')
 

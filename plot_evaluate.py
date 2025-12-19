@@ -1,5 +1,5 @@
 from game import Board
-from players import RandomPlayer, GreedyPlayer, ChatGPTPlayer, battle_summary, plot_battle_results_from_csv, evaluate_policy_against_checkpoints
+from players import RandomPlayer, GreedyPlayer, ChatGPTPlayer, battle_summary, plot_battle_results_from_csv, MinimaxDarkChessPlayer
 from mcts import MCTSPlayer
 import time
 from config import CONFIG
@@ -12,12 +12,12 @@ elif CONFIG['use_frame'] == 'pytorch':
     if CONFIG.get('no_dark_mode', True):
         policy_value_net = PolicyValueNet(model_file='current_policy_no_dark.pth')
     else:
-        policy_value_net = PolicyValueNet(model_file='current_policy.pth')
+        policy_value_net = PolicyValueNet(model_file='new_current_policy.pth')
 
     #policy_value_net = PolicyValueNet(model_file=None)
 else:
     print('暂不支持您选择的框架')
-playout_num = 1000
+playout_num = 400
 # 定義不同策略
 player_RL = MCTSPlayer(policy_value_net.policy_value_fn,
                                  c_puct=1,
@@ -29,25 +29,11 @@ gpt_player = ChatGPTPlayer()
 opponents = {
     "Random": RandomPlayer(),
     "Greedy": GreedyPlayer(),
-    "GPT": ChatGPTPlayer()
+    "GPT": ChatGPTPlayer(),
+    "DarkCraftLite":MinimaxDarkChessPlayer()
 }
-# 跑 100 場 RL vs Random
-results = evaluate_policy_against_checkpoints(
-    board,
-    model_dir="models",
-    start=1000, end=6000, step=1000,
-    n_games=100,
-    csv_file="post_policy_evaluate.csv"
-)
-
-#results = battle_summary(player_RL, opponents, board, playouts=400, n_games=100)
-print(results)
-plot_battle_results_from_csv(csv_file="post_policy_evaluate.csv")
-'''res= battle(greedy_agent, gpt_player, board, playout_num, n_games=100, is_shown=False, plot_interval=10)
-print(res)'''
 
 
-# 跑 100 場 RL vs Greedy
-#res = battle(player_RL, greedy_agent, board, playout_num, n_games=100, is_shown=False, plot_interval=10)
-#print(res)
+#results = battle_summary(player_RL, opponents, board, playouts=400, n_games=100,csv_file="new_battle_summary.csv")
+plot_battle_results_from_csv(csv_file="new_battle_summary.csv")
 

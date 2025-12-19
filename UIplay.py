@@ -5,10 +5,11 @@ import random
 import numpy as np
 from game import move_action2move_id, Game, Board, move_id2move_action
 from mcts import MCTSPlayer
+import matplotlib.pyplot as plt
 import time
 from config import CONFIG
 from mcts_pure import MCTS_Pure
-from players import GreedyPlayer, RandomPlayer, ChatGPTPlayer
+from players import GreedyPlayer, RandomPlayer, ChatGPTPlayer, MinimaxDarkChessPlayer
 if CONFIG['use_frame'] == 'paddle':
     from paddle_net import PolicyValueNet
 elif CONFIG['use_frame'] == 'pytorch':
@@ -39,7 +40,7 @@ class Human:
 if CONFIG['use_frame'] == 'paddle':
     policy_value_net = PolicyValueNet(model_file='current_policy.model')
 elif CONFIG['use_frame'] == 'pytorch':
-    policy_value_net = PolicyValueNet(model_file='current_policy.pth')
+    policy_value_net = PolicyValueNet(model_file='new_current_policy.pth')
 
     #policy_value_net = PolicyValueNet(model_file=None)
 else:
@@ -144,6 +145,72 @@ def board2image(board):
             return_image_rect.append((img, rect))
     return return_image_rect
 
+def show_current_state(state, mode="auto", num_planes_per_group=9):
+    """
+    Display all planes of the dark chess state encoding using numeric values.
+    Each cell shows its value directly (no color map).
+
+    state: shape (62, 4, 8)
+    mode: "auto" (grouped) or "manual" (show all)
+    num_planes_per_group: number of planes per group when in manual mode
+    """
+    state = np.array(state)
+    assert len(state.shape) == 3, f"Invalid input shape: {state.shape}"
+    total_planes, h, w = state.shape
+
+    # === Define logical groups ===
+    groups = [
+        ("Board History (last 4 moves × 7 planes = 28)", 0, 28),
+        ("Player and Perspective Info (2 planes)", 28, 30),
+        ("Piece Reveal States (32 planes)", 30, 62)
+    ]
+
+    def show_group(title, start, end):
+        planes_to_show = state[start:end]
+        num_show = planes_to_show.shape[0]
+
+        cols = int(np.ceil(np.sqrt(num_show)))
+        rows = int(np.ceil(num_show / cols))
+
+        fig, axes = plt.subplots(rows, cols, figsize=(cols * 2.5, rows * 2.5))
+        axes = np.array(axes).reshape(-1)
+
+        for i in range(rows * cols):
+            ax = axes[i]
+            if i < num_show:
+                plane = planes_to_show[i]
+                ax.set_xlim(-0.5, w - 0.5)
+                ax.set_ylim(h - 0.5, -0.5)
+
+                # Draw grid
+                ax.set_xticks(np.arange(-0.5, w, 1))
+                ax.set_yticks(np.arange(-0.5, h, 1))
+                ax.grid(True, which='both', color='black', linestyle='-', linewidth=0.4)
+
+                # Show numeric values
+                for y in range(h):
+                    for x in range(w):
+                        val = plane[y, x]
+                        ax.text(x, y, f"{val:.0f}", ha='center', va='center', fontsize=10)
+
+                ax.set_title(f"Plane {start + i}", fontsize=10)
+                ax.set_xticklabels([])
+                ax.set_yticklabels([])
+            else:
+                ax.axis('off')
+
+        plt.suptitle(f"{title} [{start}–{end - 1}]  shape={state.shape}", fontsize=13)
+        plt.tight_layout()
+        plt.show()
+
+    if mode == "auto":
+        for title, start, end in groups:
+            show_group(title, start, end)
+    else:
+        for start in range(0, total_planes, num_planes_per_group):
+            end = min(start + num_planes_per_group, total_planes)
+            show_group(f"Planes {start}–{end - 1}", start, end)
+
 
 fire_rect = fire_image.get_rect()
 fire_rect.center = (0 * x_ratio + x_bais, 3 * y_ratio + y_bais)
@@ -157,9 +224,11 @@ player_human = Human()
 
 player_random = MCTS_Pure(500)
 
+player_dark_craft = MinimaxDarkChessPlayer()
+
 player_RL = MCTSPlayer(policy_value_net.policy_value_fn,
                                  c_puct=1,
-                                 n_playout=1000,
+                                 n_playout=500,
                                  is_selfplay=0)
 player_RL2 = MCTSPlayer(policy_value_net.policy_value_fn,
                                  c_puct=5,
@@ -174,6 +243,7 @@ board.init_board(start_player)
 p1, p2 = 1, 2
 player_RL.set_player_ind(1)
 player_gpt.set_player_ind(2)
+player_dark_craft.set_player_ind(1)
 player_human.set_player_ind(2)
 players = {p1: player_RL, p2: player_human}
 
@@ -232,11 +302,14 @@ while True:
         current_player = board.get_current_player_id()  # 红子对应的玩家id
         player_in_turn = players[current_player]  # 决定当前玩家的代理
 
-    if player_in_turn.agent == 'AI':
+    if player_in_turn.agent != 'HUMAN':
         pygame.display.update()
         start_time = time.time()
-        move, probs = player_in_turn.get_action(board, 1, 1)  # 当前玩家代理拿到动作
+        move = player_in_turn.get_action(board)  # 当前玩家代理拿到动作
         state = board.current_state()
+        #print(board.remain_pieces)
+        #show_current_state(state, mode="auto")
+        '''
         state = np.expand_dims(state, 0)  # 增加 batch 維度
         state = state.astype('float32')
         _, v = policy_value_net.policy_value(state)
@@ -260,6 +333,7 @@ while True:
             print(f"{rank}. Move {move_id}: ({y1},{x1})->({y2},{x2}), Prob = {legal_probs[i]:.4f}")
 
         print(f"\nPredicted V for Player {player_in_turn}: {v}")
+        '''
         print('耗时：', time.time() - start_time)
         board.do_move(move)  # 棋盘做出改变
         swicth_player = True
