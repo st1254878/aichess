@@ -176,7 +176,8 @@ def start_game():
         'session_id': sid,
         'board': board_str,
         'human_first': s['human_first'],
-        'human_color': s.get('human_color')  # '红' 或 '黑'
+        'human_color': s.get('human_color'),
+        'current_player': s['board'].current_player_color
     })
 
 

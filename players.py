@@ -366,38 +366,7 @@ class Human:
         # UIplay 會用，這裡先放佔位
         return None
 
-def evaluate_policy_against_checkpoints(board,
-                                        model_dir="models",
-                                        start=1000, end=6000, step=1000,
-                                        n_games=100,
-                                        csv_file="post_policy_evaluate.csv"):
-    current_policy = PolicyValueNet(model_file='current_policy.pth')
-    current_player = MCTSPlayer(current_policy.policy_value_fn,
-                                c_puct=1, n_playout=300, is_selfplay=0)
-    current_player.agent = f"Current-policy"
 
-    # 🔸 先建立 CSV（只建立一次）
-    with open(csv_file, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["Opponent", "Wins", "Losses", "Draws"])
-
-    # 收集對手 (舊的 checkpoint)
-
-    for batch in range(start, end + 1, step):
-        opponents = {}
-        filename = f"current_policy_batch{batch}.pth"
-        path = os.path.join(model_dir, filename)
-        if os.path.exists(path):
-            old_policy = PolicyValueNet(model_file=path)
-            old_player = MCTSPlayer(old_policy.policy_value_fn,
-                                    c_puct=1, n_playout=200, is_selfplay=0)
-            old_player.agent = f"Batch{batch}"
-            opponents[f"Batch{batch}"] = old_player
-
-        # 跑 battle_summary
-        results = battle_summary(current_player, opponents, board, playouts=1000,
-                                 n_games=n_games, save_csv=True, csv_file=csv_file, append=True)
-    return
 
 def battle_summary(player1, opponents, board, playouts, n_games=100,
                    save_csv=True, csv_file="battle_summary.csv"):
@@ -480,158 +449,107 @@ def battle_summary(player1, opponents, board, playouts, n_games=100,
         print(f"📊 對戰結果已更新至 {csv_file}")
 
     return results
-def battle_capture_summary(player1, opponents, board, n_games=100, save_csv=True, csv_file="battle_capture_summary.csv"):
-    """
-    對戰統計（含雙方吃棋比例）
-    記錄每個對手的平均吃棋比例 = 吃棋數 / 總步數
-    分別統計 player1 與對手雙方。
-    """
-    game = Game(board)
-    results = {}
-
-    # --- 初始化 CSV ---
-    if save_csv:
-        f = open(csv_file, "w", newline="", encoding="utf-8")
-        writer = csv.writer(f)
-        writer.writerow([
-            "Opponent",
-            "Wins", "Losses", "Draws",
-            "Player1_CaptureRate", "Opponent_CaptureRate"
-        ])
-    else:
-        writer = None
-        f = None
-
-    # --- 主回圈 ---
-    for opp_name, player2 in opponents.items():
-        stats = {"win": 0, "loss": 0, "draw": 0}
-        p1_capture_rates = []  # player1 平均吃棋比例
-        p2_capture_rates = []  # 對手 平均吃棋比例
-
-        print(f"⚔️ {player1.agent} vs {opp_name} 開始對戰，共 {n_games} 場...")
-
-        for i in range(n_games):
-            board.init_board(1)
-            players = {1: player1, 2: player2}
-
-            # 每場初始化
-            total_moves = {1: 0, 2: 0}
-            total_captures = {1: 0, 2: 0}
-
-            # 輪流先手
-            if i % 2 == 0:
-                player1.set_player_ind(1); player2.set_player_ind(2)
-            else:
-                player1.set_player_ind(2); player2.set_player_ind(1)
-
-            # --- 對戰 ---
-            while True:
-                cur_id = board.current_player_id
-                move = players[cur_id].get_action(board)
-                if move is None:
-                    break
-
-                y1, x1, y2, x2 = map(int, move_id2move_action[move])
-                start = board.state_deque[-1][y1][x1]
-                target = board.state_deque[-1][y2][x2]
-
-                # 判定是否吃棋
-                if target not in ('一一', '暗棋') and board.current_player_color not in target:
-                    total_captures[cur_id] += 1
-
-                total_moves[cur_id] += 1
-                board.do_move(move)
-
-                end, winner = board.game_end()
-                if end:
-                    print(f"第{i}場結束")
-                    if winner == -1:
-                        stats["draw"] += 1
-                    elif players[winner] == player1:
-                        stats["win"] += 1
-                    else:
-                        stats["loss"] += 1
-                    break
-
-            # --- 計算本場吃棋比例 ---
-            p1_id = player1.player
-            p2_id = player2.player
-
-            p1_rate = (total_captures[p1_id] / total_moves[p1_id]) if total_moves[p1_id] > 0 else 0
-            p2_rate = (total_captures[p2_id] / total_moves[p2_id]) if total_moves[p2_id] > 0 else 0
-
-            p1_capture_rates.append(p1_rate)
-            p2_capture_rates.append(p2_rate)
-
-        # --- 場均 ---
-        avg_p1_rate = sum(p1_capture_rates) / len(p1_capture_rates)
-        avg_p2_rate = sum(p2_capture_rates) / len(p2_capture_rates)
-
-        results[opp_name] = {
-            **stats,
-            "p1_capture_rate": avg_p1_rate,
-            "p2_capture_rate": avg_p2_rate
-        }
-
-        print(f"✅ {player1.agent} vs {opp_name} 完成: {stats}")
-        print(f"  Player1 平均吃棋比例 = {avg_p1_rate:.3f}")
-        print(f"  {opp_name} 平均吃棋比例 = {avg_p2_rate:.3f}")
-
-        # --- 寫入 CSV ---
-        if writer:
-            writer.writerow([
-                opp_name,
-                stats["win"], stats["loss"], stats["draw"],
-                f"{avg_p1_rate:.3f}", f"{avg_p2_rate:.3f}"
-            ])
-            f.flush()
-
-    # --- 結尾 ---
-    if f:
-        f.close()
-        print(f"📊 對戰結果（含雙方吃棋比例）已存到 {csv_file}")
-
-    return results
 
 def plot_battle_results_from_csv(csv_file="battle_summary.csv"):
     import csv
     import matplotlib.pyplot as plt
+    import numpy as np
+    from matplotlib.transforms import blended_transform_factory
 
     opponents = []
     wins = []
+    draws = []
+    losses = []
 
     # --- 讀取 CSV ---
     with open(csv_file, "r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            opponents.append(row["Opponent"])
-            wins.append(int(row["Wins"]))
+            opponents.append(row.get("Opponent", "").strip())
 
-    # --- 根據勝場數排序 ---
-    sorted_data = sorted(zip(opponents, wins), key=lambda x: x[1], reverse=True)
-    opponents, wins = zip(*sorted_data)
+            def to_int(x):
+                try:
+                    return int(x)
+                except:
+                    return 0
 
-    # --- 定義不同的填充樣式 (hatch patterns) ---
-    hatch_patterns = ["//", "\\\\", "xx", "oo", "--", "++", "..", "**"]
-    hatch_patterns = (hatch_patterns * ((len(opponents) // len(hatch_patterns)) + 1))[:len(opponents)]
+            wins.append(to_int(row.get("Wins", 0)))
+            losses.append(to_int(row.get("Losses", 0)))
+            draws.append(to_int(row.get("Draws", 0)))
 
-    # --- 畫圖 ---
-    fig, ax = plt.subplots(figsize=(8, 5))
+    if not opponents:
+        print("CSV 沒有讀到資料")
+        return
 
-    bars = []
-    for i, (opponent, win) in enumerate(zip(opponents, wins)):
-        bar = ax.bar(opponent, win, color="white", edgecolor="black", hatch=hatch_patterns[i])
-        bars.append(bar)
+    # --- 依 Wins 排序 ---
+    order = sorted(range(len(opponents)), key=lambda i: wins[i], reverse=False)
+    opponents = [opponents[i] for i in order]
+    wins = [wins[i] for i in order]
+    draws = [draws[i] for i in order]
+    losses = [losses[i] for i in order]
 
-    ax.set_xlabel("對手策略", fontsize=12)
-    ax.set_ylabel("勝利場數", fontsize=12)
-    ax.set_title("對戰結果", fontsize=14)
-    ax.set_ylim(0, max(wins) + 5)
+    # --- 顏色 ---
+    color_win = "#4A90E2"   # 藍
+    color_draw = "#7F8C8D"  # 灰
+    color_loss = "#E74C3C"  # 紅
 
-    # 在柱狀圖上加數字
-    for bar, v in zip(bars, wins):
-        ax.text(bar[0].get_x() + bar[0].get_width() / 2, v + 0.5, str(v),
-                ha="center", va="bottom", fontsize=10)
+    y = np.arange(len(opponents))
+    height = 0.6
+
+    # 調整 figsize 與左邊邊界（避免左側文字被裁切）
+    fig, ax = plt.subplots(figsize=(5.5, max(4, len(opponents) * 0.6)))
+    fig.subplots_adjust(left=0.20, right=0.95)  # left 越大，軸外可放的空間越多
+
+    # Bars（從 x=0 開始）
+    win_bars = ax.barh(y, wins, height=height, color=color_win, edgecolor="black")
+    draw_bars = ax.barh(y, draws, height=height, left=wins, color=color_draw, edgecolor="black")
+    left_for_losses = [w + d for w, d in zip(wins, draws)]
+    loss_bars = ax.barh(y, losses, height=height, left=left_for_losses, color=color_loss, edgecolor="black")
+
+    # 標註每個區塊數字（>0 才顯示）
+    def annotate(bars):
+        for bar in bars:
+            w = bar.get_width()
+            if w > 0:
+                ax.text(bar.get_x() + w / 2,
+                        bar.get_y() + bar.get_height() / 2,
+                        str(int(w)),
+                        va="center", ha="center",
+                        fontsize=9,
+                        color="white" if w > 10 else "black")
+    annotate(win_bars)
+    annotate(draw_bars)
+    annotate(loss_bars)
+
+    # --- 把對手名稱顯示在右邊（跟之前行為一致）---
+    ax.yaxis.tick_right()
+    ax.set_yticks(y)
+    ax.set_yticklabels(opponents, fontsize=11)
+
+    # --- 在 bar 左側軸外放置 "暗棋 Alpha"（x 用 axes fraction，y 用 data）---
+    # blended transform: (x in axes coords, y in data coords)
+    trans = blended_transform_factory(ax.transAxes, ax.transData)
+    # 放在 axes fraction 的 -0.02（略在軸外），若要更外可調到 -0.04 或 -0.01
+    x_axes_pos = -0.02
+    for yi in y:
+        ax.text(x_axes_pos, yi, "暗棋阿拉法",
+                transform=trans,
+                ha="right", va="center", fontsize=11,
+                clip_on=False)  # 允許畫在軸外
+
+    # 標題與格式
+    ax.set_title("暗棋阿拉法對戰結果", fontsize=15, weight="bold")
+    ax.set_xlabel("場數", fontsize=12)
+    ax.grid(axis="x", linestyle="--", alpha=0.35)
+
+    # x 軸上界（從 0 開始）
+    total_max = max(w + d + l for w, d, l in zip(wins, draws, losses))
+    ax.set_xlim(0, total_max + max(5, int(total_max * 0.05)))
+
+    # 移除圖例（你先前要求）
+    # （若你之後想要圖例，可反註解下面三行）
+    # from matplotlib.patches import Patch
+    # ax.legend(handles=[Patch(facecolor=color_win), Patch(facecolor=color_draw), Patch(facecolor=color_loss)], labels=["Wins","Draws","Losses"])
 
     plt.tight_layout()
     plt.show()

@@ -203,7 +203,7 @@ def get_legal_moves(state_deque, current_player_color):
     directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]  # 上下左右
     # 棋子等級 越大越強
     piece_strength = {
-        '红炮': 0, '黑炮': 0,
+        '红炮': 2, '黑炮': 2,
         '红兵': 1, '黑兵': 1,
         '红马': 2, '黑马': 2,
         '红车': 3, '黑车': 3,
@@ -223,8 +223,7 @@ def get_legal_moves(state_deque, current_player_color):
             piece = state_list[i][j]
             if piece == '暗棋':
                 m = str(i) + str(j) + str(i) + str(j)
-                if change_state(state_list, m) != old_state_list:
-                    moves.append(m)
+                moves.append(m)
             elif piece != '一一' and current_player_color in piece:
                 for dx, dy in directions:
                     ni, nj = i + dx, j + dy
@@ -238,12 +237,10 @@ def get_legal_moves(state_deque, current_player_color):
                             if '帅' in piece and '兵' in target_piece:
                                 continue
                             elif '兵' in piece and '帅' in target_piece:
-                                if change_state(state_list, m) != old_state_list:
-                                    moves.append(m)
+                                moves.append(m)
                             else:
                                 if  get_strength(piece) >= get_strength(target_piece):
-                                    if change_state(state_list, m) != old_state_list:
-                                        moves.append(m)
+                                    moves.append(m)
             # 炮的合理吃法
             if '炮' in piece and current_player_color in piece:
                 toY = i
@@ -256,8 +253,7 @@ def get_legal_moves(state_deque, current_player_color):
                     else:
                         if state_list[toY][toX] != '一一':
                             if current_player_color not in state_list[toY][toX] and state_list[toY][toX] != '暗棋':
-                                if change_state(state_list, m) != old_state_list:
-                                    moves.append(m)
+                                moves.append(m)
                             break
                 hits = False
                 for toX in range(j + 1, 8):
@@ -268,8 +264,7 @@ def get_legal_moves(state_deque, current_player_color):
                     else:
                         if state_list[toY][toX] != '一一':
                             if current_player_color not in state_list[toY][toX] and state_list[toY][toX] != '暗棋':
-                                if change_state(state_list, m) != old_state_list:
-                                    moves.append(m)
+                                moves.append(m)
                             break
                 toX = j
                 hits = False
@@ -281,8 +276,7 @@ def get_legal_moves(state_deque, current_player_color):
                     else:
                         if state_list[toY][toX] != '一一':
                             if current_player_color not in state_list[toY][toX] and state_list[toY][toX] != '暗棋':
-                                if change_state(state_list, m) != old_state_list:
-                                    moves.append(m)
+                                moves.append(m)
                             break
                 hits = False
                 for toY in range(i + 1, 4):
@@ -293,8 +287,7 @@ def get_legal_moves(state_deque, current_player_color):
                     else:
                         if state_list[toY][toX] != '一一':
                             if current_player_color not in state_list[toY][toX] and state_list[toY][toX] != '暗棋':
-                                if change_state(state_list, m) != old_state_list:
-                                    moves.append(m)
+                                moves.append(m)
                             break
 
     moves_id = []
@@ -712,7 +705,7 @@ class Game(object):
                 # 2. 吃子分數正規化 (副作用)
                 total_abs = sum(abs(r) for r in rewards) + 1e-8
                 scaled_rewards = np.array([r / total_abs for r in rewards])  # [-1, 1] 之間
-                alpha = 2  # 吃子影響比重 (可以調整 0.1 ~ 0.5)
+                alpha = 5  # 吃子影響比重 (可以調整 0.1 ~ 0.5)
 
                 # 3. 合併，勝負為主，吃子為輔
                 merged_rewards = winner_z + alpha * scaled_rewards
@@ -740,18 +733,6 @@ class Game(object):
 
 if __name__ == '__main__':
     board = Board()
-    game = Game(board)
-    board.init_board()
-    move = board.availables[0]
-    board.do_move(move)
-    move = board.availables[0]
-    board.do_move(move)
-    move = board.availables[0]
-    board.do_move(move)
-    game.graphic(board)
-    board.undo_move()
-    game.graphic(board)
-
 
 
 

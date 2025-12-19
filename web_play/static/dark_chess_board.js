@@ -4,12 +4,15 @@ const gameDiv = document.getElementById("game");
 const boardElement = document.getElementById("board");
 const turnIndicator = document.getElementById("turnIndicator");
 const thinkingEl = document.getElementById("thinking");
-
+const thinkingEl2 = document.getElementById("thinking2");
+let humanColor = null;
 let selectedStart = null;
 let selectedEnd = null;
 let humanFirst = true;
+let firstmove = true;
 let currentSessionId = null;
-
+let isSubmitting = false;
+let interactionDisabled = false;
 // 棋子對應的圖片路徑
 const pieceImages = {
     "暗棋": "static/imgs/blankchess.png",
@@ -43,8 +46,10 @@ function getSessionId() {
     }
 }
 
+
 // ------------------ 開始遊戲 ------------------
 async function startGame(side) {
+    thinkingEl2.style.display = 'block'
     try {
         const res = await fetch("/start", {
             method: "POST",
@@ -65,7 +70,11 @@ async function startGame(side) {
         setupDiv.style.display = "none";
         gameDiv.style.display = "block";
         createBoard();
-
+        if (data.human_color) {
+            humanColor = data.human_color;
+        } else {
+            humanColor = null;
+        }
         // render 初始棋盤
         await updateBoard();
 
@@ -73,6 +82,7 @@ async function startGame(side) {
         console.error("startGame error:", err);
         alert("建立遊戲發生錯誤，請看 console");
     }
+    thinkingEl2.style.display = 'none';
 }
 
 // ------------------ 建立棋盤 ------------------
@@ -80,40 +90,173 @@ function createBoard() {
     boardElement.innerHTML = "";
     for (let r = 0; r < 4; r++) {
         const row = document.createElement("div");
-        row.className = "row flex";
+        row.className = "row"; // grid 已處理格子排版，row 可留空或用於語義
         for (let c = 0; c < 8; c++) {
             const cell = document.createElement("div");
-            cell.className = "cell border border-gray-400 w-16 h-16 flex items-center justify-center text-xl font-bold";
-            cell.style.border = "1px solid gray";
+            cell.className = "cell";
             cell.dataset.row = r;
             cell.dataset.col = c;
-            cell.addEventListener("click", onCellClick);
+            cell.addEventListener('touchend', onCellTouchEnd, { passive: false });
+            cell.addEventListener('click', onCellTouchEnd, { passive: false }); // 桌機仍支援滑鼠
             row.appendChild(cell);
         }
         boardElement.appendChild(row);
     }
 }
 
-// ------------------ 點擊格子 ------------------
-function onCellClick(event) {
-    const cell = event.currentTarget; // use currentTarget to ensure div not img
+function updateTurnIndicator(currentPlayer) {
+    if (firstmove) {
+        firstmove = false;
+        if (humanFirst) {
+            return;
+        }
+    }
+    let badgeHtml = '';
+    if (humanColor === '红') badgeHtml = '<span class="player-badge badge-red" title="你是紅方"></span>';
+    else if (humanColor === '黑') badgeHtml = '<span class="player-badge badge-black" title="你是黑方"></span>';
+
+    let text = '';
+    if (humanColor) {
+        if (currentPlayer) {
+            if (currentPlayer === humanColor) text = `${badgeHtml} 現在輪到你 (${currentPlayer})`;
+            else text = `${badgeHtml} 現在輪到暗棋阿拉法 (${currentPlayer})`;
+        }
+    } else {
+        text = currentPlayer ? `目前輪到：${currentPlayer}` : '目前輪到：-';
+    }
+    turnIndicator.innerHTML = text;
+}
+
+// ------------------ 點擊格子（touchend / click handler） ------------------
+function onCellTouchEnd(event) {
+    // 阻止 touchend 後觸發 click
+    try { event.preventDefault(); } catch (e) {}
+
+    if (interactionDisabled) return; // 禁止互動時忽略點擊
+
+    const cell = event.currentTarget;
     const row = cell.dataset.row;
     const col = cell.dataset.col;
 
-    // Toggle selection logic: first click 設 start，再次同一格取消；第二次設 end
+    // 若沒有起點 -> 設為起點
     if (!selectedStart) {
         selectedStart = { row, col, cell };
-        cell.style.border = "4px solid orange";
-    } else if (!selectedEnd) {
-        selectedEnd = { row, col, cell };
-        cell.style.border = "4px solid red";
-    } else {
-        // 已經選了 start 和 end，再點會重設成新的 start
-        // 清掉之前的選擇樣式
-        resetSelection();
-        selectedStart = { row, col, cell };
-        cell.style.border = "4px solid orange";
+        cell.classList.add('start-selected');
+        return;
     }
+
+    // 已有起點但沒有終點
+    if (selectedStart && !selectedEnd) {
+        // 同格：視為翻棋（也算一個 move）
+        if (selectedStart.row === row && selectedStart.col === col) {
+            selectedEnd = { row, col, cell };
+            cell.classList.add('end-selected');
+            // 立即嘗試送出 move（翻棋）
+            attemptMove();
+            return;
+        }
+
+        // 不同格：視為移動，立即送出
+        selectedEnd = { row, col, cell };
+        cell.classList.add('end-selected');
+        attemptMove();
+        return;
+    }
+
+    // 已有 start & end -> 重新當作新的 start
+    resetSelection();
+    selectedStart = { row, col, cell };
+    cell.classList.add('start-selected');
+}
+
+// ------------------ 嘗試送出走步（取代 confirmMove） ------------------
+async function attemptMove() {
+    if (isSubmitting) return; // 已在送出中
+    const sid = getSessionId();
+    if (!sid) {
+        alert("找不到 session，請先按 Start 開新遊戲");
+        resetSelection();
+        return;
+    }
+    if (!selectedStart || !selectedEnd) {
+        // 保險：若沒有完整選擇就忽略
+        return;
+    }
+
+    isSubmitting = true;
+    disableInteraction();
+
+    const move_action = `${selectedStart.row}${selectedStart.col}${selectedEnd.row}${selectedEnd.col}`;
+
+    try {
+        const res = await fetch("/move", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ session_id: sid, move_action })
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+            // 伺服器回錯誤，例如 illegal move
+            const msg = data.error || JSON.stringify(data);
+            // 若是 illegal move，可給更友善說明
+            if (data.error === 'illegal move') {
+                alert("走法不合法");
+            } else if (data.error === 'game_already_over') {
+                alert("遊戲已結束");
+            } else {
+                alert("錯誤：" + msg);
+            }
+            // 失敗時：把終點取消（保留起點），讓玩家繼續選終點或取消
+            if (selectedEnd && selectedEnd.cell) {
+                resetSelection();
+            }
+            return;
+        }
+
+        // 成功：伺服器可能回傳 board, game_over, 等資訊
+        // 更新畫面
+        await updateBoard();
+
+        // 如果人方這步導致遊戲結束，就顯示結果並不叫 AI
+        if (data.game_over) {
+            if (data.winner) {
+                alert(data.winner === 1 ? "紅方勝利！" : (data.winner === 2 ? "黑方勝利！" : "平局"));
+            } else {
+                alert("遊戲結束！");
+            }
+            // 清除選擇
+            resetSelection();
+            return;
+        }
+
+        // 若遊戲未結且是人下完，要讓 AI 行動
+        await aiMove();
+
+        // AI 做完之後也會更新棋盤（aiMove 中已呼 updateBoard）
+        // 可以選擇清除選擇或保留（建議清除）
+        resetSelection();
+
+    } catch (err) {
+        console.error("attemptMove error:", err);
+        alert("送出走步時發生錯誤，請看 console");
+        // 若失敗，重置選擇以免卡狀態
+        resetSelection();
+    } finally {
+        isSubmitting = false;
+        enableInteraction();
+    }
+}
+
+// 簡單禁用/啟用交互（如果你想要在送出期間不讓玩家再點）
+function disableInteraction() {
+    interactionDisabled = true;
+    // optional: show visual feedback
+    thinkingEl.style.display = "block";
+}
+function enableInteraction() {
+    interactionDisabled = false;
+    thinkingEl.style.display = "none";
 }
 
 // ------------------ 確認走棋 ------------------
@@ -184,6 +327,9 @@ async function updateBoard() {
                 updateCell(cell, board[r][c]);
             }
         }
+
+        updateTurnIndicator(currentPlayer);
+
     } catch (err) {
         console.error("updateBoard error:", err);
     }
@@ -238,12 +384,11 @@ async function aiMove() {
     }
 }
 
-// ------------------ 重置選擇 ------------------
 function resetSelection() {
     selectedStart = null;
     selectedEnd = null;
     document.querySelectorAll(".cell").forEach(cell => {
-        cell.style.border = "1px solid gray";
+        cell.classList.remove('start-selected', 'end-selected');
     });
 }
 
@@ -252,7 +397,7 @@ function resetGame() {
   boardElement.innerHTML = "";
   turnIndicator.innerText = "";
   thinkingEl.style.display = "none";
-
+  firstmove = true;
   // 清除 session id
   currentSessionId = null;
   try { localStorage.removeItem('aichess_session_id'); } catch (e) {}

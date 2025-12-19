@@ -1,5 +1,5 @@
 from game import Board
-from players import RandomPlayer, GreedyPlayer, ChatGPTPlayer, battle_summary, plot_battle_results_from_csv, evaluate_policy_against_checkpoints, MinimaxDarkChessPlayer
+from players import RandomPlayer, GreedyPlayer, ChatGPTPlayer, battle_summary, plot_battle_results_from_csv, MinimaxDarkChessPlayer
 from mcts import MCTSPlayer
 import time
 from config import CONFIG
@@ -32,15 +32,8 @@ opponents = {
     "GPT": ChatGPTPlayer(),
     "DarkCraftLite":MinimaxDarkChessPlayer()
 }
-# 跑 100 場 RL vs Random
+
 
 #results = battle_summary(player_RL, opponents, board, playouts=400, n_games=100,csv_file="new_battle_summary.csv")
 plot_battle_results_from_csv(csv_file="new_battle_summary.csv")
-'''res= battle(greedy_agent, gpt_player, board, playout_num, n_games=100, is_shown=False, plot_interval=10)
-print(res)'''
-
-
-# 跑 100 場 RL vs Greedy
-#res = battle(player_RL, greedy_agent, board, playout_num, n_games=100, is_shown=False, plot_interval=10)
-#print(res)
 

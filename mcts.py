@@ -195,7 +195,7 @@ class MCTSPlayer(object):
             #print(board.start_player)
             eat_index = [i for i, a in enumerate(acts) if a in eat_ids]
             probs = probs.copy()
-            probs[eat_index] *= 30
+            probs[eat_index] *= 40
             probs /= probs.sum()
         move_probs[list(acts)] = probs
         #if eat_ids:

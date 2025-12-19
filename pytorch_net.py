@@ -87,7 +87,7 @@ class DarkChessNet(nn.Module):
         self.policy_bn = nn.BatchNorm2d(32)
         self.policy_fc1 = nn.Linear(32 * 4 * 8, 512)
         self.policy_fc2 = nn.Linear(512, num_actions)
-        self.policy_dropout = nn.Dropout(0.3)
+        self.policy_dropout = nn.Dropout(0.2)
 
         # --- 價值頭 ---
         self.value_conv = nn.Conv2d(num_channels, 16, kernel_size=1)
@@ -95,7 +95,7 @@ class DarkChessNet(nn.Module):
         self.value_fc1 = nn.Linear(16 * 4 * 8, 512)
         self.value_fc2 = nn.Linear(512, 256)
         self.value_fc3 = nn.Linear(256, 1)
-        self.value_dropout = nn.Dropout(0.3)
+        self.value_dropout = nn.Dropout(0.2)
 
     def forward(self, x):
         # x shape: [B, 62, 4, 8]

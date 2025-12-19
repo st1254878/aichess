@@ -2,7 +2,8 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8">
-  <title>暗棋</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>暗棋阿拉法</title>
   <link rel="stylesheet" href="static/style.css">
   <style>
     /* 簡單樣式保證棋盤顯示 */
@@ -12,23 +13,25 @@
   </style>
 </head>
 <body>
-  <h1>暗棋</h1>
+  <h1>暗棋阿拉法</h1>
 
   <div id="setup">
-    <p>請選擇先後手：</p>
     <button onclick="startGame('first')">先手</button>
     <button onclick="startGame('second')">後手</button>
+      <div id="thinking2" style="display:none; color:red; font-weight:bold; margin:10px;">
+        處理中...
+    </div>
   </div>
 
   <div id="game" style="display:none;">
     <div id="turnIndicator" style="margin-bottom:8px;"></div>
     <div id="board" style="display:inline-block; border:1px solid #333;"></div>
     <div id="thinking" style="display:none; color:red; font-weight:bold; margin:10px;">
-        AI 正在思考中...
+        暗棋阿拉法 正在思考中...
     </div>
     <div style="margin-top: 10px;">
-      <button onclick="confirmMove()">確認走棋</button>
       <button onclick="resetGame()">重新開始</button>
+        <h1>提示:翻棋需要在同一格點兩次</h1>
     </div>
   </div>
 
