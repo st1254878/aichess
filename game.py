@@ -57,7 +57,8 @@ def init_full_open_board():
 
     return board
     # 沒有暗棋了，所以 remain_pieces 清空
-# 列表来表示棋盘，红方在上，黑方在下。使用时需要使用深拷贝
+# 遊戲初始狀態
+# 注意：在暗棋模式中，棋子位置是隨機生成的，這裡的 '红方在上' 僅為座標系參考
 state_list_init = generate_dark_chess_board()
 non_covered_state_list_init = init_full_open_board()
 
@@ -162,9 +163,10 @@ def flip_map(string):
         new_str += str(digit)
     return new_str
 
-# 边界检查
+# 邊界檢查 (Legacy: 目前邏輯多已內含邊界判定)
 def check_bounds(toY, toX):
-    if toY in [0, 1, 2, 3, 4] and toX in [0, 1, 2, 3, 4, 5, 6, 7]:
+    """檢查座標是否在 4x8 棋盤內"""
+    if toY in [0, 1, 2, 3] and toX in [0, 1, 2, 3, 4, 5, 6, 7]:
         return True
     return False
 
@@ -187,10 +189,17 @@ def check_obstruct(piece, current_player_color):
         return True
 
 
-# 得到当前盘面合法走子集合
-# 输入状态队列不能小于10，current_player_color:当前玩家控制的棋子颜色
-# 用来存放合法走子的列表，例如[0, 1, 2, 1089, 2085]
 def get_legal_moves(state_deque, current_player_color):
+    """
+    計算當前盤面的所有合法移動。
+    
+    Args:
+        state_deque: 包含歷史盤面狀態的隊列（用於判斷長打/長捉）。
+        current_player_color: 當前玩家顏色 ('红' 或 '黑')。
+        
+    Returns:
+        moves_id: 合法移動的 move_id 列表。
+    """
 
     state_list = state_deque[-1]
     old_state_list = state_deque[-4]
@@ -521,6 +530,15 @@ class Board(object):
 
     # 根据move对棋盘状态做出改变
     def do_move(self, move):
+        """
+        執行一步移動或翻棋，並更新棋盤狀態與當前玩家。
+        
+        Args:
+            move: 移動的 move_id。
+            
+        Returns:
+            reward: 本次移動產生的獎勵（吃子得分）。
+        """
         self.game_start = True  # 游戏开始
         self.action_count += 1  # 移动次数加1
         move_action = move_id2move_action[move]

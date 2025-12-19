@@ -192,7 +192,8 @@ class MCTSPlayer(object):
                 #print(start,target,sep=" ")
                 eat_ids.append(a)
         if eat_ids:
-            #print(board.start_player)
+            # 啟發式增益：若當前有可吃子行動，人為放大其機率（AlphaZero 原始算法不含此步，此為項目優化）
+            # 這樣可以讓 AI 在訓練初期更具攻擊性
             eat_index = [i for i, a in enumerate(acts) if a in eat_ids]
             probs = probs.copy()
             probs[eat_index] *= 40
